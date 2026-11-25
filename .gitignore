@@ -1,0 +1,6 @@
+# Reference council documents (not used at runtime)
+ref/
+
+# OS / editor artifacts
+.DS_Store
+Thumbs.db

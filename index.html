@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>355 Coronation Dr — 3D Solar &amp; Surface Shading Simulator (Auchenflower / Milton, Brisbane)</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <!-- Loading Screen -->
+  <div id="loading-overlay">
+    <div class="spinner"></div>
+    <div class="loading-title">Building 3D Brisbane Urban Model…</div>
+    <div class="loading-sub" id="loading-status">Loading 1,570 measured buildings &amp; Queensland 0.5m LiDAR terrain</div>
+  </div>
+
+  <!-- 3D Viewport -->
+  <div id="canvas-container"></div>
+
+  <!-- Top HUD Bar -->
+  <header id="top-bar">
+    <div class="brand-pill glass">
+      <div class="brand-dot"></div>
+      <div>
+        <div class="brand-title">355 Coronation Dr · 3D Sun &amp; Shade Simulator</div>
+        <div class="brand-sub">Auchenflower / Milton · 1,570 Real BCC Buildings + 0.5m LiDAR Terrain</div>
+      </div>
+    </div>
+
+    <div class="sun-hud-pill glass">
+      <div class="sun-hud-item">
+        <span class="sun-hud-label">Local Time (AEST)</span>
+        <span class="sun-hud-val amber" id="hud-datetime">21 Jun · 09:30</span>
+      </div>
+      <div class="sun-hud-item">
+        <span class="sun-hud-label">Sun Altitude</span>
+        <span class="sun-hud-val" id="hud-alt">28.9°</span>
+      </div>
+      <div class="sun-hud-item">
+        <span class="sun-hud-label">Sun Azimuth</span>
+        <span class="sun-hud-val" id="hud-az">36.4° NE</span>
+      </div>
+      <div class="sun-hud-item">
+        <span class="sun-hud-label">355 Coro Tower</span>
+        <span class="sun-hud-val red" id="hud-tower">23st · 76.4m</span>
+      </div>
+      <div class="compass-wrap" id="compass-btn" title="Click to reset North up">
+        <svg id="compass-svg" viewBox="0 0 32 32">
+          <circle cx="16" cy="16" r="14" fill="none" stroke="rgba(148,163,184,0.3)" stroke-width="1"/>
+          <polygon points="16,3 19.5,16 16,13.5 12.5,16" fill="#f43f5e"/>
+          <polygon points="16,29 19.5,16 16,18.5 12.5,16" fill="#94a3b8"/>
+          <text x="16" y="10.5" text-anchor="middle" fill="#fff" font-size="6.5" font-weight="700">N</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="camera-bar glass">
+      <button class="cam-btn active" data-cam="focus355">355 Coro</button>
+      <button class="cam-btn" data-cam="dunmore">Dunmore Tce</button>
+      <button class="cam-btn" data-cam="river">River View</button>
+      <button class="cam-btn" data-cam="top">Top Plan</button>
+      <button class="cam-btn" data-cam="overview">Full Region</button>
+    </div>
+  </header>
+
+  <!-- Collapsed Panel Restore Buttons -->
+  <button id="toggle-left-btn" class="panel-toggle-btn glass">☰ Controls</button>
+  <button id="toggle-right-btn" class="panel-toggle-btn glass">📊 Inspector</button>
+
+  <!-- Left Panel: Solar & Proposed Tower Controls -->
+  <aside id="left-panel" class="side-panel glass">
+    <div class="panel-header">
+      <h2>Solar &amp; Scenario Controls</h2>
+      <button class="icon-btn" id="collapse-left" title="Hide panel">✕</button>
+    </div>
+    <div class="panel-scroll">
+      <!-- Solar Date & Time -->
+      <section class="section-card">
+        <div class="section-title">
+          <span>Solar Date &amp; Time</span>
+          <span class="badge amber" id="day-season-badge">Winter Solstice</span>
+        </div>
+
+        <div class="pill-row">
+          <button class="pill-btn active" data-date="2026-06-21">Winter<br/>21 Jun</button>
+          <button class="pill-btn" data-date="2026-03-21">Equinox<br/>21 Mar</button>
+          <button class="pill-btn" data-date="2026-09-23">Equinox<br/>23 Sep</button>
+          <button class="pill-btn" data-date="2026-12-21">Summer<br/>21 Dec</button>
+        </div>
+
+        <div class="control-row">
+          <label for="date-input">Custom Date</label>
+          <input type="date" id="date-input" value="2026-06-21" />
+        </div>
+
+        <div class="control-row">
+          <label for="time-slider">Time of Day (AEST)</label>
+          <span class="control-val" id="time-val">09:30</span>
+        </div>
+
+        <input type="range" id="time-slider" min="300" max="1140" step="1" value="570" />
+        <div class="sun-ticks">
+          <span id="tick-sunrise">↑ 06:38</span>
+          <span id="tick-noon">☀ 11:49</span>
+          <span id="tick-sunset">↓ 17:02</span>
+        </div>
+
+        <div class="time-controls">
+          <button class="play-btn" id="play-btn">▶ Animate Day</button>
+          <select id="play-speed" style="flex:1">
+            <option value="30">Slow (0.5 hr/s)</option>
+            <option value="75" selected>Normal (1.2 hr/s)</option>
+            <option value="160">Fast (2.6 hr/s)</option>
+          </select>
+        </div>
+      </section>
+
+      <!-- Proposed 355 Coronation Drive Tower -->
+      <section class="section-card">
+        <div class="section-title">
+          <span>355 Coronation Dr (DA A006954430)</span>
+          <span class="badge red" id="tower-status-badge">Approved</span>
+        </div>
+
+        <label class="toggle-row">
+          <span>Show Proposed Building (A/B Compare)</span>
+          <input type="checkbox" id="toggle-proposed" checked />
+        </label>
+
+        <div class="pill-row">
+          <button class="pill-btn active-red" data-scenario="approved" title="Approved DA A006954430 (23 storeys, 76.4m)">23st<br/>76.4m</button>
+          <button class="pill-btn" data-scenario="maxrl" title="Including rooftop elements/overrun (83.6m)">Max<br/>83.6m</button>
+          <button class="pill-btn" data-scenario="hdr2" title="HDR2 zone cap (15 storeys, 50m)">15st<br/>50m</button>
+          <button class="pill-btn" data-scenario="statutory" title="TANP Statutory Limit for <1,500m² lot (8 storeys, 27m)">8st<br/>27m</button>
+          <button class="pill-btn" data-scenario="off" title="Existing baseline buildings only">Off</button>
+        </div>
+
+        <div class="control-row">
+          <label for="height-slider">Tower Height (above NGL 6.9m)</label>
+          <span class="control-val" id="height-val">76.4 m</span>
+        </div>
+        <input type="range" id="height-slider" class="red-slider" min="0" max="100" step="0.2" value="76.4" />
+
+        <div class="control-row">
+          <label for="cover-slider">Tower Site Cover (~1,359m² lot)</label>
+          <span class="control-val" id="cover-val">60% (829 m²)</span>
+        </div>
+        <input type="range" id="cover-slider" class="red-slider" min="40" max="75" step="1" value="60" />
+
+        <div class="control-row" style="font-size:10.5px; color:var(--text-muted)">
+          <span>Roof RL (AHD): <strong id="tower-rl" style="color:var(--text-primary)">83.3 m</strong></span>
+          <span>Est. Storeys: <strong id="tower-storeys" style="color:var(--text-primary)">23</strong></span>
+        </div>
+      </section>
+
+      <!-- Map & Visual Settings -->
+      <section class="section-card">
+        <div class="section-title">
+          <span>3D Display &amp; Layers</span>
+        </div>
+
+        <div class="control-row">
+          <label>Terrain Basemap</label>
+        </div>
+        <div class="pill-row">
+          <button class="pill-btn" data-basemap="light">Architectural</button>
+          <button class="pill-btn active-cyan" data-basemap="streets">Street Map</button>
+          <button class="pill-btn" data-basemap="aerial">Satellite</button>
+        </div>
+
+        <div class="control-row">
+          <label>Building Coloring</label>
+        </div>
+        <div class="pill-row">
+          <button class="pill-btn active-cyan" data-colormode="architectural">Uniform</button>
+          <button class="pill-btn" data-colormode="height">By Height</button>
+          <button class="pill-btn" data-colormode="impact">355 Impact</button>
+        </div>
+
+        <label class="toggle-row">
+          <span>3D Surface Shade Heatmap Overlay</span>
+          <input type="checkbox" id="toggle-heatmap" checked />
+        </label>
+        <label class="toggle-row">
+          <span>3D Solar Path Arc &amp; Sun Sphere</span>
+          <input type="checkbox" id="toggle-sunarc" checked />
+        </label>
+        <label class="toggle-row">
+          <span>23-Storey Floor Lines on 355 Coro</span>
+          <input type="checkbox" id="toggle-floors" checked />
+        </label>
+      </section>
+
+      <div class="source-note">
+        <strong>Data Sources:</strong> Building footprints &amp; measured heights (<code>BUILDINGHEIGHTM</code>) from Brisbane City Council Nearmap/LiDAR open data. Terrain from QLD 0.5m LiDAR DEM. Proposed tower parameters from <a href="https://stop355coro.org/" target="_blank" rel="noopener">stop355coro.org</a> (DA A006954430). Region: <code>152.9949,-27.4825</code> to <code>153.0124,-27.4689</code>.
+      </div>
+    </div>
+  </aside>
+
+  <!-- Right Panel: Surface Shading Inspector & Impacted Neighbours -->
+  <aside id="right-panel" class="side-panel glass">
+    <div class="panel-header">
+      <h2>Surface Shading Simulator</h2>
+      <button class="icon-btn" id="collapse-right" title="Hide panel">✕</button>
+    </div>
+
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="inspector">Surface Inspector</button>
+      <button class="tab-btn" data-tab="impact">Impacted Neighbours <span id="impact-count-badge" class="badge red" style="margin-left:3px">–</span></button>
+    </div>
+
+    <div class="panel-scroll">
+      <!-- TAB 1: Surface Inspector -->
+      <div id="tab-inspector" class="tab-pane active">
+        <div id="inspector-empty" class="section-card empty-state">
+          <p style="margin-bottom:8px"><strong>Click any building wall or roof</strong> in the 3D scene to run a ray-traced solar shading simulation for that exact surface.</p>
+          <p style="margin-bottom:12px">Compares <strong>Existing Baseline</strong> vs <strong>With 355 Coronation Dr</strong> across every 15 minutes of the day.</p>
+          <button class="action-btn" id="quick-inspect-8dunmore">Inspect 8 Dunmore Tce (Nearest Neighbour)</button>
+        </div>
+
+        <div id="inspector-content" style="display:none; flex-direction:column; gap:10px;">
+          <!-- Building Info -->
+          <section class="section-card">
+            <div class="bldg-title" id="sel-addr">—</div>
+            <div class="bldg-meta" id="sel-meta"></div>
+
+            <div class="control-row" style="margin-top:2px">
+              <label for="surface-select">Simulated Surface</label>
+              <span class="control-val" id="sel-area" style="font-size:11px; color:var(--accent-cyan)">—</span>
+            </div>
+            <select id="surface-select" style="width:100%"></select>
+
+            <div class="pill-row">
+              <button class="pill-btn" id="btn-surf-roof">Roof</button>
+              <button class="pill-btn" id="btn-surf-whole">Whole Building</button>
+              <button class="pill-btn" id="btn-fly-selected">🎯 Center View</button>
+            </div>
+          </section>
+
+          <!-- Instantaneous % Shaded KPIs -->
+          <section class="section-card">
+            <div class="section-title">
+              <span>Current % Shaded</span>
+              <span class="badge" id="sel-time-badge">09:30 AEST</span>
+            </div>
+
+            <div class="kpi-grid">
+              <div class="kpi-box">
+                <div class="kpi-label">With 355 Coro</div>
+                <div class="kpi-value" id="kpi-prop">—</div>
+                <div class="kpi-sub">Total shaded</div>
+              </div>
+              <div class="kpi-box">
+                <div class="kpi-label">Existing Base</div>
+                <div class="kpi-value" id="kpi-base" style="color:var(--text-secondary)">—</div>
+                <div class="kpi-sub">Without 355</div>
+              </div>
+              <div class="kpi-box highlight-red">
+                <div class="kpi-label">355 Coro Impact</div>
+                <div class="kpi-value" id="kpi-delta" style="color:#fb7185">—</div>
+                <div class="kpi-sub" id="kpi-delta-m2">— m²</div>
+              </div>
+            </div>
+
+            <!-- Breakdown Bar -->
+            <div class="breakdown-bar" id="breakdown-bar">
+              <div class="seg-sun" id="seg-sun" style="width:50%"></div>
+              <div class="seg-new355" id="seg-new355" style="width:20%"></div>
+              <div class="seg-exist" id="seg-exist" style="width:20%"></div>
+              <div class="seg-self" id="seg-self" style="width:10%"></div>
+            </div>
+            <div class="legend-grid">
+              <div class="legend-item"><span class="legend-swatch seg-sun"></span>Sunlit: <strong id="leg-sun">0%</strong></div>
+              <div class="legend-item"><span class="legend-swatch seg-new355"></span>New 355 Shade: <strong id="leg-new355" style="color:#fb7185">0%</strong></div>
+              <div class="legend-item"><span class="legend-swatch seg-exist"></span>Existing Shade: <strong id="leg-exist">0%</strong></div>
+              <div class="legend-item"><span class="legend-swatch seg-self"></span>Facing Away: <strong id="leg-self">0%</strong></div>
+            </div>
+          </section>
+
+          <!-- Full-Day % Shaded Chart -->
+          <section class="section-card">
+            <div class="section-title">
+              <span>Full-Day Surface Shading Curve</span>
+              <span class="badge amber">Click chart to scrub</span>
+            </div>
+            <div class="chart-box">
+              <div class="chart-header">
+                <span><span style="color:#fb7185">━</span> With 355 Coro &nbsp; <span style="color:#94a3b8">┅</span> Baseline</span>
+                <span>9am–3pm shaded</span>
+              </div>
+              <svg id="daily-chart-svg" viewBox="0 0 320 148"></svg>
+            </div>
+
+            <table class="stat-table">
+              <thead>
+                <tr>
+                  <th>Metric</th>
+                  <th>Baseline</th>
+                  <th>w/ 355</th>
+                  <th>Impact</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>9am–3pm Avg Shade</td>
+                  <td id="st-base-93">—</td>
+                  <td id="st-prop-93">—</td>
+                  <td id="st-delta-93">—</td>
+                </tr>
+                <tr>
+                  <td>Full Day Avg Shade</td>
+                  <td id="st-base-day">—</td>
+                  <td id="st-prop-day">—</td>
+                  <td id="st-delta-day">—</td>
+                </tr>
+                <tr>
+                  <td>Direct Sun Lost (9–3)</td>
+                  <td>—</td>
+                  <td>—</td>
+                  <td id="st-hrs-93">—</td>
+                </tr>
+                <tr>
+                  <td>Peak Extra Shade</td>
+                  <td colspan="2" style="text-align:right"><span class="jump-link" id="st-peak-time">—</span></td>
+                  <td id="st-peak-val">—</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+        </div>
+      </div>
+
+      <!-- TAB 2: Impacted Neighbours Scanner -->
+      <div id="tab-impact" class="tab-pane">
+        <section class="section-card">
+          <div class="section-title">
+            <span>355 Coro Shadow Impact Scan</span>
+            <span class="badge red" id="scan-date-badge">21 Jun</span>
+          </div>
+          <p style="font-size:11px; color:var(--text-secondary); line-height:1.45">
+            Ray-traces surrounding buildings within 450m across the selected date to identify every neighbour experiencing additional overshadowing from 355 Coronation Drive.
+          </p>
+          <button class="action-btn secondary" id="btn-rescan-impact">↻ Rescan &amp; Highlight on 3D Map</button>
+        </section>
+
+        <div id="impact-list" class="impact-list"></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Hover Tooltip -->
+  <div id="hover-tooltip" class="glass">
+    <div class="tt-addr" id="tt-addr"></div>
+    <div class="tt-sub" id="tt-sub"></div>
+  </div>
+
+  <!-- Bottom Controls Hint -->
+  <div id="bottom-hint" class="glass">
+    <span><kbd>Left-Drag</kbd> Rotate</span>
+    <span><kbd>Right-Drag</kbd> Pan</span>
+    <span><kbd>Scroll</kbd> Zoom</span>
+    <span><kbd>Click</kbd> Any Wall or Roof to Simulate % Shaded</span>
+  </div>
+
+  <!-- Scripts (classic order for 100% file:// and http:// compatibility) -->
+  <script src="lib/three.min.js"></script>
+  <script src="lib/OrbitControls.js"></script>
+  <script src="data/scene-data.js"></script>
+  <script src="data/basemaps.js"></script>
+  <script src="js/solar.js"></script>
+  <script src="js/raytracer.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
