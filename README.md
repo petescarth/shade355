@@ -1,5 +1,7 @@
 # shade355 — 355 Coronation Drive 3D Solar & Surface Shading Simulator
 
+**Live Demo:** https://petescarth.com/shade355/
+
 An interactive, zero-dependency-install 3D urban solar and overshadowing simulator for the proposed **355 Coronation Drive & 6 Lang Parade, Auchenflower / Milton (Brisbane)** development (**DA `A006954430`**, *"Bloom"*).
 
 The simulator models **1,570 measured Brisbane buildings** over a **Queensland 0.5m LiDAR Digital Elevation Model (DEM)** across a **1,733.8 m × 1,507.6 m** study area and combines WebGL real-time shadow mapping with a client-side **3D geometric ray-traced surface shading engine** to quantify baseline vs. proposed overshadowing on any building wall, roof, or whole exterior.
@@ -60,7 +62,8 @@ No npm runtime dependencies, bundlers, or external CDNs are required to run the 
 
 ### 1. Launching the Simulator
 
-- **Direct Open:** Double-click [index.html](index.html) to open it directly in a modern WebGL-enabled browser (`file://` is fully supported).
+- **Live Hosted Version:** Open **[https://petescarth.com/shade355/](https://petescarth.com/shade355/)** in any modern WebGL-enabled browser.
+- **Direct Open:** Double-click [index.html](index.html) to open it directly from disk (`file://` is fully supported).
 - **Local HTTP Server (optional):**
   ```powershell
   # Using Python
