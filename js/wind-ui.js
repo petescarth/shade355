@@ -191,11 +191,12 @@
       }
     }
 
-    // 4. Animated 3D Wind Streamlines (2,400 GPU-friendly line segments)
-    const PARTICLE_COUNT = 2400;
+    // 4. Animated 3D Wind Streamlines (3,200 GPU-friendly line segments: 45% street-level + 55% 3D downwash/canopy)
+    const PARTICLE_COUNT = 3200;
     const pPos = new Float32Array(PARTICLE_COUNT * 3);
     const pAge = new Float32Array(PARTICLE_COUNT);
     const pMaxAge = new Float32Array(PARTICLE_COUNT);
+    const pKind = new Uint8Array(PARTICLE_COUNT); // 0 = street/pedestrian layer, 1 = 3D facade/upper flow
     const linePos = new Float32Array(PARTICLE_COUNT * 6);
     const lineCol = new Float32Array(PARTICLE_COUNT * 6);
 
@@ -205,7 +206,7 @@
     const streamMat = new THREE.LineBasicMaterial({
       vertexColors: true,
       transparent: true,
-      opacity: 0.85
+      opacity: 0.90
     });
     const streamLines = new THREE.LineSegments(streamGeo, streamMat);
     streamLines.frustumCulled = false;
@@ -214,26 +215,53 @@
     function seedParticle(i, initialScatter = false) {
       const [fx, fz] = global.WindTunnelEngine.windDirToFlowXZ(wState.dirDeg);
       const crossX = -fz, crossZ = fx;
-      const half = windEngine.domainW * 0.48;
-      // 45% focused around 355 Coro facade/downwash zone, 55% across full 320m domain
-      const focused = (i % 10) < 4;
-      const along = initialScatter
-        ? (Math.random() * 2 - 1) * (focused ? 95 : half)
-        : -(focused ? 55 + Math.random() * 55 : half * (0.85 + Math.random() * 0.14));
-      const cross = (Math.random() * 2 - 1) * (focused ? 65 : half);
-      const wx = clamp(windEngine.cx + fx * along + crossX * cross, windEngine.minX + 3, windEngine.maxX - 3);
-      const wz = clamp(windEngine.cz + fz * along + crossZ * cross, windEngine.minZ + 3, windEngine.maxZ - 3);
-      const gy = shadingEngine.sampleDem(wx, wz);
-      // Bias heights toward pedestrian -> 76m tower height so downwash is vividly visible
-      const u = Math.random();
-      const hAGL = focused ? (2.0 + Math.pow(u, 1.15) * 86.0) : (2.0 + Math.pow(u, 1.45) * 90.0);
-      const wy = Math.min(windEngine.domainH - 3, gy + hAGL);
+      const half = windEngine.domainW * 0.47;
+      const isStreet = i < Math.floor(PARTICLE_COUNT * 0.45);
+      pKind[i] = isStreet ? 0 : 1;
+
+      const field = wState.lastMetrics ? wState.lastMetrics.prop : null;
+      const bldg = field ? field.bldgFootprint : null;
+
+      let wx = windEngine.cx, wz = windEngine.cz, wy = 10;
+
+      if (isStreet) {
+        // Street / pedestrian layer (1.5m - 10m AGL): seed directly across open streets, footpaths & hotspots!
+        // Try up to 6 times to land in open air outside building footprints (biased toward the 130m 355-Coro impact zone)
+        for (let attempt = 0; attempt < 6; attempt++) {
+          const nearSite = (i % 3) !== 0;
+          const rSpan = nearSite ? 115 : half;
+          const along = (Math.random() * 2 - 1) * rSpan;
+          const cross = (Math.random() * 2 - 1) * rSpan;
+          wx = clamp(windEngine.cx + fx * along + crossX * cross, windEngine.minX + 4, windEngine.maxX - 4);
+          wz = clamp(windEngine.cz + fz * along + crossZ * cross, windEngine.minZ + 4, windEngine.maxZ - 4);
+          if (!bldg) break;
+          const gx = clamp(Math.floor((wx - windEngine.minX) / windEngine.dx), 0, windEngine.nx - 1);
+          const gz = clamp(Math.floor((wz - windEngine.minZ) / windEngine.dz), 0, windEngine.nz - 1);
+          if (!bldg[gz * windEngine.nx + gx]) break;
+        }
+        const gy = shadingEngine.sampleDem(wx, wz);
+        const hAGL = 1.6 + Math.pow(Math.random(), 1.5) * 9.5; // Concentrated right in pedestrian 1.6-6m zone!
+        wy = gy + hAGL;
+        pMaxAge[i] = 2.2 + Math.random() * 2.4;
+      } else {
+        // Full-3D boundary layer & downwash curtain (10m - 95m AGL)
+        const focused = (i % 10) < 5;
+        const along = initialScatter
+          ? (Math.random() * 2 - 1) * (focused ? 105 : half)
+          : -(focused ? 45 + Math.random() * 65 : half * (0.78 + Math.random() * 0.2));
+        const cross = (Math.random() * 2 - 1) * (focused ? 75 : half);
+        wx = clamp(windEngine.cx + fx * along + crossX * cross, windEngine.minX + 3, windEngine.maxX - 3);
+        wz = clamp(windEngine.cz + fz * along + crossZ * cross, windEngine.minZ + 3, windEngine.maxZ - 3);
+        const gy = shadingEngine.sampleDem(wx, wz);
+        const hAGL = 10.0 + Math.random() * 88.0;
+        wy = Math.min(windEngine.domainH - 6, gy + hAGL);
+        pMaxAge[i] = 3.2 + Math.random() * 3.6;
+      }
 
       pPos[i * 3] = wx;
       pPos[i * 3 + 1] = wy;
       pPos[i * 3 + 2] = wz;
-      pAge[i] = initialScatter ? Math.random() * 4.0 : 0;
-      pMaxAge[i] = 3.2 + Math.random() * 3.8;
+      pAge[i] = initialScatter ? Math.random() * pMaxAge[i] : 0;
 
       linePos[i * 6] = wx; linePos[i * 6 + 1] = wy; linePos[i * 6 + 2] = wz;
       linePos[i * 6 + 3] = wx; linePos[i * 6 + 4] = wy; linePos[i * 6 + 5] = wz;
@@ -515,7 +543,7 @@
       const padL = 34, padR = 12, padT = 10, padB = 22;
       const plotW = W - padL - padR;
       const plotH = H - padT - padB;
-      const maxH = 96;
+      const maxH = 120;
       const maxS = Math.max(
         12,
         ...probeRes.profile.map((p) => Math.max(p.propSpeed, p.baseSpeed))
@@ -533,7 +561,7 @@
       html += `<line x1="${padL}" y1="${yPod.toFixed(1)}" x2="${W - padR}" y2="${yPod.toFixed(1)}" stroke="rgba(148,163,184,0.22)" stroke-dasharray="2,3" stroke-width="1"/>`;
 
       // Grid lines & labels
-      for (const rl of [0, 25, 50, 75, 95]) {
+      for (const rl of [0, 30, 60, 90, 120]) {
         const y = yOf(rl);
         html += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" stroke="rgba(148,163,184,0.12)" stroke-width="0.8"/>`;
         html += `<text x="${padL - 4}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="#94a3b8" font-size="8.5" font-family="monospace">${rl}m</text>`;
@@ -639,6 +667,7 @@
           wState.lastMetrics = windEngine.computePedestrianMetrics(wState.dirDeg, wState.refSpeedMs);
           statusEl.textContent = windEngine.backend;
           rebuildWindArrows();
+          resetAllParticles();
           paintPedestrianHeatmap();
           updateVerticalSlice();
           updateProbeUI();
@@ -689,16 +718,17 @@
           continue;
         }
         const gy = shadingEngine.sampleDem(nx, nz);
-        const clampedY = Math.max(gy + 0.8, ny);
+        const clampedY = Math.max(gy + 1.25, ny);
 
         pPos[i * 3] = nx;
         pPos[i * 3 + 1] = clampedY;
         pPos[i * 3 + 2] = nz;
 
-        // Line segment from tail -> head
-        const tx = nx - v.ux * tailScale;
-        const ty = Math.max(gy + 0.6, clampedY - v.uy * tailScale);
-        const tz = nz - v.uz * tailScale;
+        // Line segment from tail -> head (slightly longer tail on pedestrian streamlines for crisp ground readability)
+        const ts = pKind[i] === 0 ? tailScale * 1.35 : tailScale;
+        const tx = nx - v.ux * ts;
+        const ty = Math.max(gy + 0.9, clampedY - v.uy * ts);
+        const tz = nz - v.uz * ts;
 
         const k6 = i * 6;
         linePos[k6] = tx; linePos[k6 + 1] = ty; linePos[k6 + 2] = tz;

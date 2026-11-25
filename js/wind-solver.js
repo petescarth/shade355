@@ -13,7 +13,7 @@
   const U10_NORM = 10.0; // Normalized reference speed (m/s at 10m AGL); scaled linearly for any U10
   const DOMAIN_W = 320;  // East-West span (m) centered on 355 Coro
   const DOMAIN_D = 320;  // North-South span (m) centered on 355 Coro
-  const DOMAIN_H = 104;  // Vertical span (m AHD: 0m -> 104m, clearing RL 83.6m crown by >20m)
+  const DOMAIN_H = 150;  // Vertical span (m AHD: 0m -> 150m, ~2x tower height to avoid top-lid blockage)
   const Y_BASE = 0.0;
 
   const DIRS_16 = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
@@ -425,6 +425,9 @@
           if (fetchSolid(uSolid, c + ivec3(0, 1, 0)) > 0.5 && v.y > 0.0) v.y *= 0.15;
           if (fetchSolid(uSolid, c - ivec3(0, 0, 1)) > 0.5 && v.z < 0.0) v.z *= 0.15;
           if (fetchSolid(uSolid, c + ivec3(0, 0, 1)) > 0.5 && v.z > 0.0) v.z *= 0.15;
+
+          float pSpd = length(v);
+          if (pSpd > 26.0) v *= (26.0 / pSpd);
 
           outVel = vec4(v, 0.0);
         }
@@ -844,11 +847,11 @@
       this.maxZ = this.cz + DOMAIN_D / 2;
       this.yBase = Y_BASE;
 
-      // Try WebGL2 GPU solver first (96x32x96), else clean CPU fallback (64x26x64)
-      this.gpuSolver = new WebGL2FluidSolver(96, 32, 96);
-      this.backend = this.gpuSolver.ok ? 'WebGL2 GPU (96×96×32)' : 'CPU 3D Navier-Stokes (64×64×26)';
+      // Try WebGL2 GPU solver first (96x40x96 over 150m height), else clean CPU fallback (64x32x64)
+      this.gpuSolver = new WebGL2FluidSolver(96, 40, 96);
+      this.backend = this.gpuSolver.ok ? 'WebGL2 GPU (96×96×40)' : 'CPU 3D Navier-Stokes (64×64×32)';
       this.nx = this.gpuSolver.ok ? 96 : 64;
-      this.ny = this.gpuSolver.ok ? 32 : 26;
+      this.ny = this.gpuSolver.ok ? 40 : 32;
       this.nz = this.gpuSolver.ok ? 96 : 64;
       this.dx = DOMAIN_W / this.nx;
       this.dy = DOMAIN_H / this.ny;
@@ -949,7 +952,7 @@
       const solid = new Uint8Array(nx * ny * nz);
       const bldgFootprint = new Uint8Array(slice);
 
-      // 1. Mark terrain voxels
+      // 1. Mark terrain voxels (value 1 = terrain, value 2 = building)
       for (let z = 0; z < nz; z++) {
         for (let x = 0; x < nx; x++) {
           const gy = this.groundY[z * nx + x];
@@ -960,7 +963,7 @@
         }
       }
 
-      // 2. Rasterize buildings
+      // 2. Rasterize buildings (value 2 = building solid, distinguished from terrain=1)
       const prisms = [];
       for (const p of this.localPrisms) {
         if (mode === 'proposed' && p.onSite355) continue;
@@ -990,7 +993,7 @@
               bldgFootprint[z * nx + x] = p.isProposed ? 2 : 1;
             }
             for (let k = k0; k <= k1; k++) {
-              solid[k * slice + z * nx + x] = 1;
+              solid[k * slice + z * nx + x] = 2;
             }
           }
         }
@@ -1129,35 +1132,53 @@
       const scale = refSpeedMs / U10_NORM;
 
       const idxNearest = Math.round(gy) * slice + Math.round(gz) * nx + Math.round(gx);
-      const isSolid = field.solid[idxNearest] > 0;
+      const groundHere = this.shadingEngine.sampleDem(wx, wz);
+      const hAGL = wy - groundHere;
+      // Only treat as solid if genuinely inside a building (solid===2) or below terrain surface.
+      // Never kill low-altitude pedestrian streamlines (DEM + 1.5m) because of coarse terrain voxel rounding!
+      const isSolid = field.solid[idxNearest] === 2 || hAGL < 0.0;
 
-      // Trilinear interpolation (weighted over fluid corners so near-ground sampling never dilutes to zero!)
+      // Trilinear interpolation (weighted over fluid corners; if right above terrain voxel, lift search 1 cell)
       let wSum = 0, sx = 0, sy = 0, sz = 0;
-      for (let ky = 0; ky <= 1; ky++) {
-        const wyf = ky ? fy : 1 - fy;
-        const yOff = (y0 + ky) * slice;
-        for (let kz = 0; kz <= 1; kz++) {
-          const wzf = kz ? fz : 1 - fz;
-          const zOff = yOff + (z0 + kz) * nx;
-          for (let kx = 0; kx <= 1; kx++) {
-            const idx = zOff + (x0 + kx);
-            if (field.solid[idx]) continue;
-            const w = (kx ? fx : 1 - fx) * wyf * wzf;
-            sx += field.ux[idx] * w;
-            sy += field.uy[idx] * w;
-            sz += field.uz[idx] * w;
-            wSum += w;
+      const sampleAtY0 = (baseY0, fracY) => {
+        for (let ky = 0; ky <= 1; ky++) {
+          const yIdx = Math.min(ny - 1, baseY0 + ky);
+          const wyf = ky ? fracY : 1 - fracY;
+          const yOff = yIdx * slice;
+          for (let kz = 0; kz <= 1; kz++) {
+            const wzf = kz ? fz : 1 - fz;
+            const zOff = yOff + (z0 + kz) * nx;
+            for (let kx = 0; kx <= 1; kx++) {
+              const idx = zOff + (x0 + kx);
+              if (field.solid[idx]) continue;
+              const w = (kx ? fx : 1 - fx) * wyf * wzf;
+              sx += field.ux[idx] * w;
+              sy += field.uy[idx] * w;
+              sz += field.uz[idx] * w;
+              wSum += w;
+            }
           }
         }
+      };
+      sampleAtY0(y0, fy);
+      if (wSum < 1e-4 && !isSolid && y0 + 1 < ny - 1) {
+        sampleAtY0(y0 + 1, 0);
       }
 
       if (wSum < 1e-4) {
         return { ux: 0, uy: 0, uz: 0, speed: 0, horizSpeed: 0, downwash: 0, isSolid: true, inDomain: true };
       }
 
-      const vx = (sx / wSum) * scale;
-      const vy = (sy / wSum) * scale;
-      const vz = (sz / wSum) * scale;
+      // Apply physical near-ground log-law shear when sampling below first fluid cell height (~0.85 * dy)
+      const refCellH = dy * 0.85;
+      const nearGroundFactor =
+        hAGL > 0 && hAGL < refCellH
+          ? Math.pow(Math.max(0.5, hAGL) / refCellH, field.alpha)
+          : 1.0;
+
+      const vx = (sx / wSum) * scale * nearGroundFactor;
+      const vy = (sy / wSum) * scale * nearGroundFactor;
+      const vz = (sz / wSum) * scale * nearGroundFactor;
       const horizSpeed = Math.hypot(vx, vz);
       const speed = Math.hypot(horizSpeed, vy);
       return {
@@ -1276,9 +1297,9 @@
       const deltaMs = sp.speed - sb.speed;
       const deltaPct = sb.speed > 0.2 ? (deltaMs / sb.speed) * 100 : 0;
 
-      // Vertical profile from DEM + 1.5m up to 96m AHD
+      // Vertical profile from DEM + 1.5m up to 120m AHD
       const profile = [];
-      for (let y = groundHere + 1.5; y <= 96; y += 3.0) {
+      for (let y = groundHere + 1.5; y <= 120; y += 3.5) {
         const vp = this.sampleVelocity(prop, wx, y, wz, refSpeedMs);
         const vb = this.sampleVelocity(base, wx, y, wz, refSpeedMs);
         profile.push({
