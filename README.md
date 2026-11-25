@@ -19,7 +19,7 @@ The simulator models **1,570 measured Brisbane buildings** over a **Queensland 0
 - **Neighbourhood Impact Scanner**
   - Ray-traces surrounding buildings within **450 m** of the site across the selected date (8:00 AM–4:00 PM at 30-minute steps + current time), ranking every neighbour experiencing ≥ 1.5% additional overshadowing and allowing one-click fly-to at each building's peak impact time.
 - **Scenario & A/B Massing Controls**
-  - Toggle the proposed building on/off for instant baseline comparison, switch between regulatory/DA height presets, or adjust tower height (`0–100 m` above `6.9 m` AHD natural ground level) and site cover (`40%–75%` of the `~1,359 m²` combined parcel).
+  - Toggle the proposed building on/off for instant baseline comparison, switch between regulatory/DA presets, or adjust tower height (`0–100 m` above `RL 7.20 m` AHD Ground FFL) and site cover (`40%–75%` of the `1,430 m²` approved DA site).
 - **Offline / `file://` Ready**
   - All scripts, libraries, terrain DEM grids, building footprints, and basemap textures are self-contained locally and loaded via classic `<script>` tags so the app works both from a local HTTP server and when opened directly via `file://`.
 
@@ -35,7 +35,7 @@ All spatial datasets are pre-compiled into [data/scene-data.js](data/scene-data.
 | **Property Boundaries & Street Addresses** | Brisbane City Council Property Holdings (`Prop_Boundaries/FeatureServer/2`) | Spatial-hashed parcel polygons used to match building centroids to street addresses (`UNIT_HOUSE_NUMBER` / `HOUSE_NUMBER`, `CORRIDOR_NAME`, `CORRIDOR_SUFFIX_CODE`, `SUBURB`) and flag existing structures on the `355 Coronation Dr` / `6 Lang Pde` site (`onSite355`). |
 | **Terrain Elevation (DEM)** | Queensland Government 0.5m LiDAR DEM (`Elevation/QldDem` ImageServer) | Sampled as a `200 × 174` (`~8.7 m` spacing) 32-bit float GeoTIFF, quantized to decimetres (`0.1 m` AHD) with underwater riverbed elevations clamped to `0.2 m` AHD for smooth river representation and hill/ridge terrain occlusion. |
 | **Terrain Basemap Textures** | Esri ArcGIS REST MapServer Exports | Three `1600 × 1391` JPEG textures embedded as base64 data URIs in [data/basemaps.js](data/basemaps.js): `Canvas/World_Light_Gray_Base` (*Architectural*), `World_Street_Map` (*Street Map*), and `World_Imagery` (*Satellite*). |
-| **Proposed Tower Parameters** | BCC Development Application `DA A006954430` | Combined `355 Coronation Dr` + `6 Lang Pde` parcel (`1,359 m²`, frontages `30.2 m` on Coronation Dr and `42.6 m` on Lang Pde, NGL `6.9 m` AHD). Default approved tower: `76.4 m` (`23` storeys, `83.3 m` AHD roof RL) at `60%` site cover (`~830 m²`), plus presets for Max RL with rooftop plant (`83.6 m`), HDR2 zone cap (`50.0 m`, 15 storeys), and TANP statutory limit for `< 1,500 m²` lots (`27.0 m`, 8 storeys). |
+| **Proposed Tower Parameters** | BCC Approved DA `A006954430` (Rev B, 16/10/2026) | Combined `355 Coronation Dr` + `6 Lang Pde` site (`1,430 m²` survey area; Lot 3 RP52037 & Lot 16 SP135237; existing NGL `~6.9 m` AHD, approved Ground FFL `RL 7.20 m` AHD). Multi-tier stepped rounded-corner profile: **Podium** (Ground–L01, `RL 7.20–18.50 m`), **Main Residential Tower** (L02–L19 + Roof Undercroft to Roof Terrace, `RL 18.50–78.35 m`, `~858 m²` / `60%` site cover), and **Recessed Rooftop Pavilion** on the SW half (`RL 78.35–83.60 m`, `76.4 m` total height, 23 storeys, with open 25 m lap pool terrace on the NE half). Presets include Approved DA (`23st 76.4m`, 60% cover), Approved Height at 50% Site Cover (`23st 50%`), HDR2 zone cap (`15st 50m`, 50% cover), and TANP statutory limit for `< 1,500 m²` lots (`8st 27m`, 50% cover). |
 
 ---
 
@@ -95,7 +95,7 @@ Use the **Camera Bar** in the top-right to smoothly fly between preset views:
 - **Solar Date & Time:** Pick a solstice/equinox preset (`21 Jun` Winter Solstice, `21 Mar` / `23 Sep` Equinox, `21 Dec` Summer Solstice) or any custom date. Drag the **Time of Day (AEST)** slider (`05:00`–`19:00`) or click **▶ Animate Day** (`Slow 0.5 hr/s`, `Normal 1.2 hr/s`, `Fast 2.6 hr/s`).
 - **355 Coronation Dr (DA A006954430):**
   - Toggle **Show Proposed Building (A/B Compare)** to switch between the proposed tower and the existing baseline buildings on the site.
-  - Choose a height/cover preset (`23st 76.4m` Approved DA, `Max 83.6m`, `15st 50m` HDR2 cap, `8st 27m` Statutory TANP limit, or `Off`), or fine-tune **Tower Height** (`0–100 m`) and **Tower Site Cover** (`40%–75%`).
+  - Choose a height/cover preset (`23st 76.4m` Approved DA, `23st 50%` Approved height at 50% cover, `15st 50m` HDR2 cap, `8st 27m` Statutory TANP limit, or `Off`), or fine-tune **Tower Height** (`0–100 m`) and **Tower Site Cover** (`40%–75%`).
 - **3D Display & Layers:** Switch terrain basemaps (*Architectural*, *Street Map*, *Satellite*), building color modes (*Uniform*, *By Height*, *355 Impact*), and toggle the **3D Surface Shade Heatmap Overlay**, **3D Solar Path Arc & Sun Sphere**, and **23-Storey Floor Lines**.
 
 ### 4. Surface Shading Simulator & Impacted Neighbours (Right Panel)

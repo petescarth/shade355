@@ -179,9 +179,10 @@
       this.visitStamp = new Int32Array(this.prisms.length);
       this.stampCounter = 0;
 
-      // Proposed 355 Coronation Dr prism
+      // Proposed 355 Coronation Dr multi-tier DA prisms (Podium, Tower Shaft, Rooftop Pavilion)
       this.proposedConfig = sceneData.proposed;
       this.proposedPrism = null;
+      this.proposedPrisms = [];
       this.setProposedConfig({
         enabled: true,
         height: sceneData.proposed.approvedHeight,
@@ -192,65 +193,201 @@
     setProposedConfig({ enabled, height, siteCoverPct }) {
       if (!enabled || height <= 0) {
         this.proposedPrism = null;
+        this.proposedPrisms = [];
         this.maxSceneTopY = this.maxExistingTopY;
         return;
       }
       const cfg = this.proposedConfig;
-      // Interpolate tower dimensions cleanly from site cover % (40%..80%)
-      // Parcel ~42.6m x 30.2m = 1359m2. Keep aspect ratio matching DA footprint (~1.6:1).
-      const targetArea = cfg.siteArea * (siteCoverPct / 100);
-      const aspect = 1.59;
-      const lenV = Math.min(cfg.frontageCoroM - 2.0, Math.sqrt(targetArea / aspect));
-      const lenU = Math.min(cfg.frontageLangM - 2.0, targetArea / lenV);
-      const halfU = lenU / 2;
-      const halfV = lenV / 2;
       const [ux, uz] = cfg.uAxis;
       const [vx, vz] = cfg.vAxis;
-      const cx = cfg.cx;
-      const cz = cfg.cz;
-
-      let ring = [
-        [cx - halfU * ux - halfV * vx, cz - halfU * uz - halfV * vz],
-        [cx + halfU * ux - halfV * vx, cz + halfU * uz - halfV * vz],
-        [cx + halfU * ux + halfV * vx, cz + halfU * uz + halfV * vz],
-        [cx - halfU * ux + halfV * vx, cz - halfU * uz + halfV * vz]
+      const origin = cfg.originCorner || [
+        cfg.cx - 22.8 * ux - 15.1 * vx,
+        cfg.cz - 22.8 * uz - 15.1 * vz
       ];
-      // Ensure CCW in top-down (signed area in x,z < 0)
-      let sa = 0;
-      for (let i = 0; i < ring.length; i++) {
-        const a = ring[i], b = ring[(i + 1) % ring.length];
-        sa += a[0] * b[1] - b[0] * a[1];
-      }
-      if (sa > 0) ring.reverse();
+      const oX = origin[0];
+      const oZ = origin[1];
 
-      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-      for (const [x, z] of ring) {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (z < minZ) minZ = z;
-        if (z > maxZ) maxZ = z;
-      }
+      const uvToXZ = (u, v) => [
+        Math.round((oX + u * ux + v * vx) * 100) / 100,
+        Math.round((oZ + u * uz + v * vz) * 100) / 100
+      ];
 
-      const yTop = cfg.g + height;
-      this.proposedPrism = {
-        idx: -1,
-        id: cfg.id,
-        addr: cfg.addr,
-        suburb: 'Auchenflower',
-        h: Math.round(height * 10) / 10,
-        g: cfg.g,
-        gMin: cfg.gMin,
-        yMin: cfg.gMin - 3.0,
-        yTop,
-        area: Math.round(lenU * lenV),
-        cx,
-        cz,
-        r: ring,
-        minX, maxX, minZ, maxZ,
-        onSite355: false,
-        isProposed: true
+      const makeRoundedRectUV = (u0, u1, v0, v1, radii, segs) => {
+        const maxR = Math.max(0.1, Math.min((u1 - u0) * 0.45, (v1 - v0) * 0.45));
+        const r = radii.map((val) => Math.min(val, maxR));
+        const corners = [
+          { cu: u0 + r[0], cv: v0 + r[0], rad: r[0], a0: Math.PI, a1: 1.5 * Math.PI },
+          { cu: u1 - r[1], cv: v0 + r[1], rad: r[1], a0: 1.5 * Math.PI, a1: 2.0 * Math.PI },
+          { cu: u1 - r[2], cv: v1 - r[2], rad: r[2], a0: 0, a1: 0.5 * Math.PI },
+          { cu: u0 + r[3], cv: v1 - r[3], rad: r[3], a0: 0.5 * Math.PI, a1: Math.PI }
+        ];
+        const pts = [];
+        for (const c of corners) {
+          for (let i = 0; i <= segs; i++) {
+            const a = c.a0 + (c.a1 - c.a0) * (i / segs);
+            pts.push(uvToXZ(c.cu + Math.cos(a) * c.rad, c.cv + Math.sin(a) * c.rad));
+          }
+        }
+        // Ensure CCW in top-down (signed area in x,z < 0)
+        let sa = 0;
+        for (let i = 0; i < pts.length; i++) {
+          const a = pts[i], b = pts[(i + 1) % pts.length];
+          sa += a[0] * b[1] - b[0] * a[1];
+        }
+        if (sa > 0) pts.reverse();
+        return { ring: pts, area: Math.round(Math.abs(sa) / 2) };
       };
-      this.maxSceneTopY = Math.max(this.maxExistingTopY, yTop);
+
+      const makeTierPrism = (tierKey, tierLabel, ringObj, yMin, yTop, sampleYMin, hasSoffit) => {
+        const ring = ringObj.ring;
+        let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+        let sumX = 0, sumZ = 0;
+        for (const [x, z] of ring) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (z < minZ) minZ = z;
+          if (z > maxZ) maxZ = z;
+          sumX += x;
+          sumZ += z;
+        }
+        const n = ring.length || 1;
+        return {
+          idx: -1,
+          id: `${cfg.id}:${tierKey}`,
+          tierKey,
+          tierLabel,
+          addr: `${cfg.addr} — ${tierLabel}`,
+          shortAddr: cfg.addr,
+          suburb: 'Auchenflower',
+          h: Math.round((yTop - sampleYMin) * 10) / 10,
+          totalH: Math.round(height * 10) / 10,
+          g: sampleYMin,
+          gMin: sampleYMin,
+          yMin,
+          yTop: Math.round(yTop * 100) / 100,
+          sampleYMin,
+          area: ringObj.area,
+          cx: sumX / n,
+          cz: sumZ / n,
+          r: ring,
+          minX, maxX, minZ, maxZ,
+          hasSoffit: !!hasSoffit,
+          onSite355: false,
+          isProposed: true
+        };
+      };
+
+      // Approved DA A006954430 Rev B exact RLs & 3-tier geometry on 1,430 m2 site:
+      // Ground FFL = RL 7.20 m | Podium Top (L02) = RL 18.50 m | Roof Terrace = RL 78.35 m | Roof = RL 83.60 m
+      const groundFFL = cfg.groundFFL !== undefined ? cfg.groundFFL : 7.2;
+      const podiumBaseH = cfg.podiumHeight !== undefined ? cfg.podiumHeight : 11.3;
+      const maxPavilionH = cfg.pavilionHeight !== undefined ? cfg.pavilionHeight : 5.25;
+
+      const crownY = groundFFL + height;
+      const podiumTopY = Math.min(crownY, groundFFL + podiumBaseH);
+      const pavilionH = height > 18.0 ? Math.min(maxPavilionH, (height - 18.0) * 0.25) : 0;
+      const terraceY = crownY - pavilionH;
+
+      // Scale floorplate cleanly around DA approved 60% site cover (858 m2 = 38.0m x 22.8m rounded)
+      const s = Math.sqrt(Math.max(0.25, siteCoverPct) / 60);
+      const rs = Math.min(1.0, s);
+      const uC = 22.8;
+      const vC = 15.1;
+
+      const towerLenU = Math.min(41.6, 38.0 * s);
+      const towerLenV = Math.min(26.6, 22.8 * s);
+      const tu0 = uC - towerLenU / 2;
+      const tu1 = uC + towerLenU / 2;
+      const tv0 = vC - towerLenV / 2;
+      const tv1 = vC + towerLenV / 2;
+
+      const tiers = [];
+
+      // Tier 1: Podium (Ground RL 7.20 -> Level 02 RL 18.50, pulled back on NE Lang Parade over lobby/driveway)
+      const podU0 = tu0 + 0.7 * rs;
+      const podU1 = tu1 - 0.9 * rs;
+      const podV0 = tv0 + 0.8 * rs;
+      const podV1 = Math.max(podV0 + 8.0, tv1 - 4.0 * rs);
+      const podiumPoly = makeRoundedRectUV(podU0, podU1, podV0, podV1, [1.6 * rs, 1.6 * rs, 2.4 * rs, 1.6 * rs], 2);
+      const podiumOnly = terraceY <= podiumTopY + 0.2;
+      const podiumPrism = makeTierPrism(
+        'podium',
+        podiumOnly ? `Podium (RL ${groundFFL.toFixed(1)}–${crownY.toFixed(1)}m)` : `Podium Ground–L01 (RL ${groundFFL.toFixed(1)}–${podiumTopY.toFixed(1)}m)`,
+        podiumPoly,
+        cfg.gMin - 3.0,
+        podiumOnly ? crownY : podiumTopY,
+        cfg.gMin,
+        false
+      );
+      tiers.push(podiumPrism);
+
+      // Tier 2: Main Residential Tower Shaft (Level 02 RL 18.50 -> Roof Terrace RL 78.35)
+      let towerPrism = null;
+      if (!podiumOnly) {
+        const towerPoly = makeRoundedRectUV(tu0, tu1, tv0, tv1, [2.4 * rs, 2.4 * rs, 3.8 * rs, 2.4 * rs], 3);
+        towerPrism = makeTierPrism(
+          'tower',
+          `Residential Tower L02–Terrace (RL ${podiumTopY.toFixed(1)}–${terraceY.toFixed(2)}m)`,
+          towerPoly,
+          podiumTopY,
+          terraceY,
+          podiumTopY,
+          true
+        );
+        tiers.push(towerPrism);
+      }
+
+      // Tier 3: Recessed Rooftop Pavilion (SW half of Roof Terrace: RL 78.35 -> Roof RL 83.60)
+      let pavilionPrism = null;
+      let poolRing = null;
+      if (pavilionH > 0.2 && towerPrism) {
+        const pavHalfU = Math.min(towerLenU * 0.42, 14.0 * s);
+        const pu0 = uC - pavHalfU;
+        const pu1 = uC + pavHalfU;
+        const pv0 = tv0 + 1.8 * rs;
+        const pv1 = pv0 + Math.min(towerLenV * 0.50, 11.0 * s);
+        const pavPoly = makeRoundedRectUV(pu0, pu1, pv0, pv1, [1.5 * rs, 1.5 * rs, 1.5 * rs, 1.5 * rs], 2);
+        pavilionPrism = makeTierPrism(
+          'pavilion',
+          `Rooftop Pavilion (RL ${terraceY.toFixed(2)}–${crownY.toFixed(2)}m)`,
+          pavPoly,
+          terraceY,
+          crownY,
+          terraceY,
+          false
+        );
+        tiers.push(pavilionPrism);
+
+        // Visual-only 25m lap pool outline on open NE (Lang Parade) half of Roof Terrace
+        const poolU0 = Math.max(tu0 + 4.0, uC - 12.5 * Math.min(1, s));
+        const poolU1 = Math.min(tu1 - 4.0, uC + 12.5 * Math.min(1, s));
+        const poolV0 = pv1 + 1.8 * rs;
+        const poolV1 = tv1 - 2.3 * rs;
+        if (poolV1 > poolV0 + 1.5 && poolU1 > poolU0 + 4.0) {
+          poolRing = [
+            uvToXZ(poolU0, poolV0),
+            uvToXZ(poolU1, poolV0),
+            uvToXZ(poolU1, poolV1),
+            uvToXZ(poolU0, poolV1)
+          ];
+        }
+      }
+
+      this.proposedPrisms = tiers;
+      const primary = towerPrism || podiumPrism;
+      primary.groundFFL = groundFFL;
+      primary.crownY = Math.round(crownY * 100) / 100;
+      primary.terraceY = Math.round(terraceY * 100) / 100;
+      primary.podiumTopY = Math.round(podiumTopY * 100) / 100;
+      primary.pavilionH = Math.round(pavilionH * 100) / 100;
+      primary.towerArea = towerPrism ? towerPrism.area : podiumPrism.area;
+      primary.podiumArea = podiumPrism.area;
+      primary.pavilionArea = pavilionPrism ? pavilionPrism.area : 0;
+      primary.poolRing = poolRing;
+      primary.tiers = tiers;
+
+      this.proposedPrism = primary;
+      this.maxSceneTopY = Math.max(this.maxExistingTopY, crownY);
     }
 
     sampleDem(x, z) {
@@ -288,10 +425,13 @@
 
       let mask = 0;
 
-      // 1. Test Proposed 355 Coro Tower first (ultra-fast single prism test)
-      if (this.proposedPrism && ignorePrismIdx !== -1) {
-        if (rayHitsPrism(ox, oy, oz, dx, dy, dz, this.proposedPrism, maxT)) {
-          mask |= 4;
+      // 1. Test Proposed 355 Coro multi-tier prisms first (Podium, Tower Shaft, Rooftop Pavilion)
+      if (this.proposedPrisms && this.proposedPrisms.length > 0 && ignorePrismIdx !== -1) {
+        for (let i = 0; i < this.proposedPrisms.length; i++) {
+          if (rayHitsPrism(ox, oy, oz, dx, dy, dz, this.proposedPrisms[i], maxT)) {
+            mask |= 4;
+            break;
+          }
         }
       }
 
@@ -405,13 +545,16 @@
       // Walls
       const ring = prism.r;
       const n = ring.length;
+      const minWallLen = prism.isProposed ? 3.0 : 1.0;
+      const wallBase = prism.sampleYMin !== undefined ? prism.sampleYMin : prism.gMin;
+      const surfH = prism.sampleYMin !== undefined ? Math.max(0.5, prism.yTop - wallBase) : prism.h;
       for (let i = 0; i < n; i++) {
         const p1 = ring[i];
         const p2 = ring[(i + 1) % n];
         const dx = p2[0] - p1[0];
         const dz = p2[1] - p1[1];
         const len = Math.hypot(dx, dz);
-        if (len < 1.0) continue;
+        if (len < minWallLen) continue;
         // Outward normal for CCW top-down ring: (-dz/len, 0, dx/len)
         const nx = -dz / len;
         const nz = dx / len;
@@ -419,7 +562,7 @@
         let az = (Math.atan2(nx, -nz) * 180) / Math.PI;
         if (az < 0) az += 360;
         const compass = global.SolarCalc.azimuthToCompass(az);
-        const area = Math.round(len * prism.h);
+        const area = Math.round(len * surfH);
         surfaces.push({
           type: 'wall',
           edgeIdx: i,
@@ -430,7 +573,7 @@
           azimuthDeg: Math.round(az),
           normal: [nx, 0, nz],
           width: Math.round(len * 10) / 10,
-          height: prism.h,
+          height: Math.round(surfH * 10) / 10,
           area
         });
       }
@@ -452,7 +595,9 @@
         if (len < 0.5) return;
         const nx = -dz / len;
         const nz = dx / len;
-        const wallH = prism.yTop - prism.gMin;
+        const wallBase = prism.sampleYMin !== undefined ? prism.sampleYMin : prism.gMin;
+        const wallH = prism.yTop - wallBase;
+        if (wallH <= 0.1) return;
         const area = len * wallH;
         const step = Math.max(0.6, Math.min(4.0, Math.sqrt(area / Math.max(16, nTarget))));
         const cols = Math.max(2, Math.round(len / step));
@@ -469,7 +614,7 @@
           const ox = bx + nx * 0.08;
           const oz = bz + nz * 0.08;
           for (let r = 0; r < rows; r++) {
-            const oy = prism.gMin + (r + 0.5) * cellH;
+            const oy = wallBase + (r + 0.5) * cellH;
             if (oy < groundHere + 0.15) continue; // Below local terrain slope
             if (oy > prism.yTop - 0.05) continue;
             samples.push({

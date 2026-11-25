@@ -186,6 +186,22 @@
       const yMin = prism.yMin;
       const yTop = prism.yTop;
 
+      // Per-tier color styling for the proposed 355 Coro multi-tier DA profile
+      let wallC = defaultWall;
+      let roofC = defaultRoof;
+      if (prism.isProposed) {
+        if (prism.tierKey === 'podium') {
+          wallC = new THREE.Color(0xb91c1c);
+          roofC = new THREE.Color(0x991b1b);
+        } else if (prism.tierKey === 'pavilion') {
+          wallC = new THREE.Color(0x9f1239);
+          roofC = new THREE.Color(0x881337);
+        } else {
+          wallC = new THREE.Color(0xdc2626);
+          roofC = new THREE.Color(0xbe123c);
+        }
+      }
+
       // 1. Walls
       for (let i = 0; i < n; i++) {
         const p1 = ring[i];
@@ -208,9 +224,9 @@
           positions.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
           normals.push(nx, 0, nz, nx, 0, nz, nx, 0, nz);
           colors.push(
-            defaultWall.r, defaultWall.g, defaultWall.b,
-            defaultWall.r, defaultWall.g, defaultWall.b,
-            defaultWall.r, defaultWall.g, defaultWall.b
+            wallC.r, wallC.g, wallC.b,
+            wallC.r, wallC.g, wallC.b,
+            wallC.r, wallC.g, wallC.b
           );
           triToPrism.push(prism);
           triToSurface.push(i);
@@ -220,9 +236,12 @@
 
         // Roof edge outline
         edgeLines.push(p1[0], yTop + 0.06, p1[1], p2[0], yTop + 0.06, p2[1]);
+        if (prism.hasSoffit) {
+          edgeLines.push(p1[0], yMin - 0.03, p1[1], p2[0], yMin - 0.03, p2[1]);
+        }
       }
 
-      // 2. Roof triangulation
+      // 2. Roof triangulation (+ optional downward soffit cap for cantilevered tower floorplates)
       const roofStartVert = positions.length / 3;
       const contour2D = ring.map(([x, z]) => new THREE.Vector2(x, -z));
       const faces = THREE.ShapeUtils.triangulateShape(contour2D, []);
@@ -240,12 +259,24 @@
         positions.push(pA[0], yTop, pA[1], pB[0], yTop, pB[1], pC[0], yTop, pC[1]);
         normals.push(0, 1, 0, 0, 1, 0, 0, 1, 0);
         colors.push(
-          defaultRoof.r, defaultRoof.g, defaultRoof.b,
-          defaultRoof.r, defaultRoof.g, defaultRoof.b,
-          defaultRoof.r, defaultRoof.g, defaultRoof.b
+          roofC.r, roofC.g, roofC.b,
+          roofC.r, roofC.g, roofC.b,
+          roofC.r, roofC.g, roofC.b
         );
         triToPrism.push(prism);
         triToSurface.push(-1);
+
+        if (prism.hasSoffit) {
+          positions.push(pA[0], yMin, pA[1], pC[0], yMin, pC[1], pB[0], yMin, pB[1]);
+          normals.push(0, -1, 0, 0, -1, 0, 0, -1, 0);
+          colors.push(
+            roofC.r * 0.78, roofC.g * 0.78, roofC.b * 0.78,
+            roofC.r * 0.78, roofC.g * 0.78, roofC.b * 0.78,
+            roofC.r * 0.78, roofC.g * 0.78, roofC.b * 0.78
+          );
+          triToPrism.push(prism);
+          triToSurface.push(-1);
+        }
       }
 
       const endVert = positions.length / 3;
@@ -328,7 +359,8 @@
       siteCoverPct: state.proposedSiteCover
     });
 
-    const active = !!engine.proposedPrism;
+    const tiers = engine.proposedPrisms;
+    const active = !!(engine.proposedPrism && tiers && tiers.length > 0);
     // Hide demolished existing buildings on 355 Coro when proposed tower is shown
     onSiteBldgs.mesh.visible = !active;
     onSiteBldgs.edges.visible = !active;
@@ -336,14 +368,14 @@
     if (!active) return;
 
     const p = engine.proposedPrism;
-    const built = createMergedBuildings([p]);
+    const built = createMergedBuildings(tiers);
 
-    // Override material with sleek architectural crimson for clear visual distinction & crisp shading
+    // Override material with sleek per-tier architectural crimson for clear visual distinction & crisp shading
     built.mesh.material.dispose();
     built.mesh.material = new THREE.MeshStandardMaterial({
-      color: 0xdc2626,
+      vertexColors: true,
       emissive: 0x2b050b,
-      emissiveIntensity: 0.18,
+      emissiveIntensity: 0.16,
       roughness: 0.52,
       metalness: 0.08
     });
@@ -354,18 +386,16 @@
     built.edges.material = new THREE.LineBasicMaterial({
       color: 0xffe4e6,
       transparent: true,
-      opacity: 0.75
+      opacity: 0.78
     });
 
     proposedGroup.add(built.mesh);
     proposedGroup.add(built.edges);
 
-    // 23-storey horizontal floor-plate bands (3.32m per floor)
-    if (state.showFloors && p.h >= 6) {
-      const floorH = 3.32;
+    // Exact DA A006954430 Rev B floor-plate bands (Ground 7.2, Mezz 10.7, L01 13.35, L02 18.50 + 3.15m typical, Undercroft 75.65, Terrace 78.35, Pavilion 82.10/83.60)
+    if (state.showFloors && p.totalH >= 6) {
       const floorPts = [];
-      const ring = p.r;
-      for (let fy = p.g + floorH; fy < p.yTop - 0.5; fy += floorH) {
+      const pushRingAtY = (ring, fy) => {
         for (let i = 0; i < ring.length; i++) {
           const a = ring[i];
           const b = ring[(i + 1) % ring.length];
@@ -375,15 +405,69 @@
           const nz = (dx / len) * 0.12;
           floorPts.push(a[0] + nx, fy, a[1] + nz, b[0] + nx, fy, b[1] + nz);
         }
+      };
+
+      const groundFFL = p.groundFFL || 7.2;
+      const typicalH = DATA.proposed.typicalFloorH || 3.15;
+
+      for (const tier of tiers) {
+        if (tier.tierKey === 'podium') {
+          const podLevels = [groundFFL, DATA.proposed.mezzanineRL || 10.7, DATA.proposed.level01RL || 13.35];
+          for (const fy of podLevels) {
+            if (fy > tier.gMin + 0.5 && fy < tier.yTop - 0.5) pushRingAtY(tier.r, fy);
+          }
+        } else if (tier.tierKey === 'tower') {
+          // Typical residential levels (3.15m floor-to-floor from L02 RL 18.50 upward)
+          const roofUndercroftRL = DATA.proposed.roofUndercroftRL || 75.65;
+          const maxTypicalY = Math.min(tier.yTop - 2.4, roofUndercroftRL - 2.5);
+          for (let fy = tier.yMin + typicalH; fy <= maxTypicalY + 0.05; fy += typicalH) {
+            pushRingAtY(tier.r, fy);
+          }
+          // Roof Undercroft transfer/pool slab band (2.7m below Roof Terrace)
+          if (tier.yTop - tier.yMin > 8.0) {
+            pushRingAtY(tier.r, tier.yTop - 2.7);
+          }
+        } else if (tier.tierKey === 'pavilion' && tier.yTop - tier.yMin >= 3.5) {
+          // Lower NE canopy overhang line (RL 82.10 = 1.5m below RL 83.60)
+          pushRingAtY(tier.r, tier.yTop - 1.5);
+        }
       }
-      const fGeo = new THREE.BufferGeometry();
-      fGeo.setAttribute('position', new THREE.Float32BufferAttribute(floorPts, 3));
-      const fMat = new THREE.LineBasicMaterial({
-        color: 0xffffff,
-        transparent: true,
-        opacity: 0.38
+
+      if (floorPts.length > 0) {
+        const fGeo = new THREE.BufferGeometry();
+        fGeo.setAttribute('position', new THREE.Float32BufferAttribute(floorPts, 3));
+        const fMat = new THREE.LineBasicMaterial({
+          color: 0xffffff,
+          transparent: true,
+          opacity: 0.40
+        });
+        proposedGroup.add(new THREE.LineSegments(fGeo, fMat));
+      }
+    }
+
+    // Purely visual 25m rooftop lap pool on open NE (Lang Parade) half of Roof Terrace (RL 78.35m)
+    if (p.poolRing && p.poolRing.length === 4) {
+      const pr = p.poolRing;
+      const py = p.terraceY + 0.12;
+      const poolPos = new Float32Array([
+        pr[0][0], py, pr[0][1], pr[1][0], py, pr[1][1], pr[2][0], py, pr[2][1],
+        pr[0][0], py, pr[0][1], pr[2][0], py, pr[2][1], pr[3][0], py, pr[3][1]
+      ]);
+      const poolGeo = new THREE.BufferGeometry();
+      poolGeo.setAttribute('position', new THREE.BufferAttribute(poolPos, 3));
+      poolGeo.computeVertexNormals();
+      const poolMat = new THREE.MeshStandardMaterial({
+        color: 0x38bdf8,
+        emissive: 0x0c4a6e,
+        emissiveIntensity: 0.35,
+        roughness: 0.18,
+        metalness: 0.25,
+        side: THREE.DoubleSide
       });
-      proposedGroup.add(new THREE.LineSegments(fGeo, fMat));
+      const poolMesh = new THREE.Mesh(poolGeo, poolMat);
+      poolMesh.castShadow = false;
+      poolMesh.receiveShadow = true;
+      proposedGroup.add(poolMesh);
     }
 
     proposedMeshObj = built;
@@ -747,12 +831,22 @@
 
     const dist355 = Math.round(Math.hypot(prism.cx - DATA.proposed.cx, prism.cz - DATA.proposed.cz));
     const approxStoreys = Math.max(1, Math.round(prism.h / 3.3));
-    document.getElementById('sel-meta').innerHTML = `
-      <span class="meta-chip">Height: ${prism.h.toFixed(1)}m (~${approxStoreys}st)</span>
-      <span class="meta-chip">NGL: ${prism.g.toFixed(1)}m AHD</span>
-      <span class="meta-chip">Roof RL: ${prism.yTop.toFixed(1)}m</span>
-      ${prism.isProposed ? '<span class="meta-chip" style="color:#fda4af">Proposed Site</span>' : `<span class="meta-chip">${dist355}m from 355 Coro</span>`}
-    `;
+    if (prism.isProposed) {
+      const groundFFL = DATA.proposed.groundFFL || 7.2;
+      document.getElementById('sel-meta').innerHTML = `
+        <span class="meta-chip">Total: ${(prism.totalH || state.proposedHeight).toFixed(1)}m (Ground RL ${groundFFL.toFixed(1)}m)</span>
+        <span class="meta-chip">Tier RL: ${prism.g.toFixed(1)}–${prism.yTop.toFixed(2)}m</span>
+        <span class="meta-chip">Floorplate: ${prism.area} m²</span>
+        <span class="meta-chip" style="color:#fda4af">DA A006954430</span>
+      `;
+    } else {
+      document.getElementById('sel-meta').innerHTML = `
+        <span class="meta-chip">Height: ${prism.h.toFixed(1)}m (~${approxStoreys}st)</span>
+        <span class="meta-chip">NGL: ${prism.g.toFixed(1)}m AHD</span>
+        <span class="meta-chip">Roof RL: ${prism.yTop.toFixed(1)}m</span>
+        <span class="meta-chip">${dist355}m from 355 Coro</span>
+      `;
+    }
     document.getElementById('sel-area').textContent = `${Math.round(chosen.area)} m² · ${state.selectedSamples.length} pts`;
 
     // Highlight buttons
@@ -1161,8 +1255,10 @@
     if (picked) {
       const { prism, surfIdx } = picked;
       const surfLabel = surfIdx === -1 ? 'Roof Surface' : 'Exterior Wall';
-      ttAddr.textContent = prism.addr;
-      ttSub.textContent = `Height: ${prism.h.toFixed(1)}m · Roof RL ${prism.yTop.toFixed(1)}m · ${surfLabel}`;
+      ttAddr.textContent = prism.isProposed ? (prism.shortAddr || prism.addr) : prism.addr;
+      ttSub.textContent = prism.isProposed
+        ? `${prism.tierLabel} · ${surfLabel}`
+        : `Height: ${prism.h.toFixed(1)}m · Roof RL ${prism.yTop.toFixed(1)}m · ${surfLabel}`;
       tooltipEl.style.display = 'block';
       tooltipEl.style.left = `${Math.min(window.innerWidth - 270, e.clientX + 14)}px`;
       tooltipEl.style.top = `${Math.min(window.innerHeight - 60, e.clientY + 14)}px`;
@@ -1237,34 +1333,54 @@
     updateSunAndLighting();
   }
 
+  function estimateProposedStoreys(h) {
+    if (h <= 0) return 0;
+    if (Math.abs(h - 76.4) < 0.35) return 23;
+    const podiumH = DATA.proposed.podiumHeight || 11.3;
+    const typicalH = DATA.proposed.typicalFloorH || 3.15;
+    if (h <= podiumH) return Math.max(1, Math.round(h / 3.75));
+    const pavH = h > 18.0 ? Math.min(DATA.proposed.pavilionHeight || 5.25, (h - 18.0) * 0.25) : 0;
+    return Math.max(1, Math.round(3 + (h - podiumH - pavH) / typicalH + (h > 18.0 ? 1 : 0)));
+  }
+
   function updateProposedUI() {
     const active = state.proposedEnabled && state.proposedHeight > 0;
     const h = active ? state.proposedHeight : 0;
-    const storeys = active ? Math.max(1, Math.round(h / 3.32)) : 0;
-    const rl = DATA.proposed.g + h;
-    const area = Math.round(DATA.proposed.siteArea * (state.proposedSiteCover / 100));
+    const groundFFL = DATA.proposed.groundFFL !== undefined ? DATA.proposed.groundFFL : 7.2;
+    const storeys = estimateProposedStoreys(h);
+    const rl = groundFFL + h;
+    const pavH = h > 18.0 ? Math.min(DATA.proposed.pavilionHeight || 5.25, (h - 18.0) * 0.25) : 0;
+    const terraceRL = rl - pavH;
+
+    rebuildProposedMesh();
+
+    const towerArea = engine.proposedPrism
+      ? engine.proposedPrism.towerArea
+      : Math.round(DATA.proposed.siteArea * (state.proposedSiteCover / 100));
 
     document.getElementById('toggle-proposed').checked = state.proposedEnabled;
     document.getElementById('height-slider').value = String(state.proposedHeight);
     document.getElementById('height-val').textContent = `${state.proposedHeight.toFixed(1)} m`;
     document.getElementById('cover-slider').value = String(state.proposedSiteCover);
-    document.getElementById('cover-val').textContent = `${state.proposedSiteCover}% (${area} m²)`;
+    document.getElementById('cover-val').textContent = `${state.proposedSiteCover}% (${towerArea} m²)`;
     document.getElementById('tower-rl').textContent = active ? `${rl.toFixed(1)} m` : 'Existing';
+    const terraceEl = document.getElementById('tower-terrace-rl');
+    if (terraceEl) terraceEl.textContent = active && pavH > 0.2 ? `${terraceRL.toFixed(2)} m` : '—';
     document.getElementById('tower-storeys').textContent = active ? String(storeys) : '0';
-    document.getElementById('hud-tower').textContent = active ? `${storeys}st · ${h.toFixed(1)}m` : 'OFF (Baseline)';
+    document.getElementById('hud-tower').textContent = active ? `${storeys}st · ${h.toFixed(1)}m (RL ${rl.toFixed(1)}m)` : 'OFF (Baseline)';
 
     const badge = document.getElementById('tower-status-badge');
     if (!active) { badge.textContent = 'Baseline'; badge.className = 'badge'; }
-    else if (Math.abs(h - 76.4) < 0.5) { badge.textContent = 'Approved DA'; badge.className = 'badge red'; }
-    else if (Math.abs(h - 83.6) < 0.5) { badge.textContent = 'Max RL'; badge.className = 'badge red'; }
+    else if (Math.abs(h - 76.4) < 0.5 && state.proposedSiteCover === 60) { badge.textContent = 'Approved DA'; badge.className = 'badge red'; }
+    else if (Math.abs(h - 76.4) < 0.5 && state.proposedSiteCover === 50) { badge.textContent = '23st · 50% Cover'; badge.className = 'badge amber'; }
     else if (Math.abs(h - 27.0) < 0.5) { badge.textContent = '8st Statutory'; badge.className = 'badge green'; }
     else if (Math.abs(h - 50.0) < 0.5) { badge.textContent = '15st HDR2'; badge.className = 'badge amber'; }
     else { badge.textContent = 'Custom'; badge.className = 'badge amber'; }
 
-    rebuildProposedMesh();
     if (state.selectedPrism) {
       if (state.selectedPrism.isProposed) {
-        if (engine.proposedPrism) selectBuildingSurface(engine.proposedPrism, state.selectedSurface);
+        const match = engine.proposedPrisms.find((t) => t.tierKey === state.selectedPrism.tierKey) || engine.proposedPrism;
+        if (match) selectBuildingSurface(match, state.selectedSurface);
         else {
           state.selectedPrism = null;
           clearSurfaceOverlay();
@@ -1318,8 +1434,8 @@
       document.querySelectorAll('[data-scenario]').forEach((b) => b.classList.toggle('active-red', b === btn));
       if (sc === 'approved') {
         state.proposedEnabled = true; state.proposedHeight = 76.4; state.proposedSiteCover = 60;
-      } else if (sc === 'maxrl') {
-        state.proposedEnabled = true; state.proposedHeight = 83.6; state.proposedSiteCover = 60;
+      } else if (sc === 'cover50') {
+        state.proposedEnabled = true; state.proposedHeight = 76.4; state.proposedSiteCover = 50;
       } else if (sc === 'hdr2') {
         state.proposedEnabled = true; state.proposedHeight = 50.0; state.proposedSiteCover = 50;
       } else if (sc === 'statutory') {
@@ -1345,11 +1461,21 @@
     document.querySelectorAll('[data-scenario]').forEach((b) => b.classList.remove('active-red'));
 
     // Immediate visual update of tower + selected surface
-    const area = Math.round(DATA.proposed.siteArea * (state.proposedSiteCover / 100));
+    rebuildProposedMesh();
+    const groundFFL = DATA.proposed.groundFFL !== undefined ? DATA.proposed.groundFFL : 7.2;
+    const h = state.proposedEnabled ? state.proposedHeight : 0;
+    const rl = groundFFL + h;
+    const pavH = h > 18.0 ? Math.min(DATA.proposed.pavilionHeight || 5.25, (h - 18.0) * 0.25) : 0;
+    const area = engine.proposedPrism
+      ? engine.proposedPrism.towerArea
+      : Math.round(DATA.proposed.siteArea * (state.proposedSiteCover / 100));
     document.getElementById('height-val').textContent = `${state.proposedHeight.toFixed(1)} m`;
     document.getElementById('cover-val').textContent = `${state.proposedSiteCover}% (${area} m²)`;
+    document.getElementById('tower-rl').textContent = state.proposedEnabled ? `${rl.toFixed(1)} m` : 'Existing';
+    const terraceEl = document.getElementById('tower-terrace-rl');
+    if (terraceEl) terraceEl.textContent = state.proposedEnabled && pavH > 0.2 ? `${(rl - pavH).toFixed(2)} m` : '—';
+    document.getElementById('tower-storeys').textContent = state.proposedEnabled ? String(estimateProposedStoreys(h)) : '0';
     document.getElementById('toggle-proposed').checked = state.proposedEnabled;
-    rebuildProposedMesh();
     if (state.selectedPrism && !state.selectedPrism.isProposed) {
       evaluateSelectedSurfaceNow();
     }

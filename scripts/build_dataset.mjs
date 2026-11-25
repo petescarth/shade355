@@ -408,30 +408,35 @@ async function main() {
   const combinedSiteRing = cleanRingXZ(combinedSiteLonLat);
   const siteAreaM2 = Math.round(Math.abs(ringSignedArea(combinedSiteRing)));
 
-  // Compute exact rectangular axes of the combined parcel:
-  // Edge along Coronation Drive (SE frontage): S corner to E corner
-  const pN = lonLatToXZ(153.002502509222, -27.475021254095);
-  const pE = lonLatToXZ(153.002805, -27.475295);
-  const pS = lonLatToXZ(153.002633341961, -27.4754963781766);
-  const pW = lonLatToXZ(153.002295248587, -27.4752213538472);
-
-  const siteCx = (pN[0] + pE[0] + pS[0] + pW[0]) / 4;
-  const siteCz = (pN[1] + pE[1] + pS[1] + pW[1]) / 4;
-
-  // Axis U along Lang Parade (NW -> SE, approx 46.5m)
-  const uVec = [pE[0] - pN[0], pE[1] - pN[1]];
+  // Compute exact orthonormal parcel axes aligned to SW & NW survey boundaries:
+  // SW boundary: siteParcel[0] (W corner) -> siteParcel[1] (S corner), pointing NW -> SE along Lang Pde / SW edge
+  const pW = combinedSiteRing[0];
+  const pS = combinedSiteRing[1];
+  const pN = combinedSiteRing[combinedSiteRing.length - 1];
+  const uVec = [pS[0] - pW[0], pS[1] - pW[1]];
   const uLen = Math.hypot(uVec[0], uVec[1]);
   const uAxis = [uVec[0] / uLen, uVec[1] / uLen];
 
-  // Axis V along Coronation Drive (SW -> NE, approx 28.7m)
-  const vVec = [pN[0] - pW[0], pN[1] - pW[1]];
-  const vLen = Math.hypot(vVec[0], vVec[1]);
-  const vAxis = [vVec[0] / vLen, vVec[1] / vLen];
+  // Perpendicular axis V pointing SW -> NE (toward Lang Parade)
+  let vAxis = [uAxis[1], -uAxis[0]];
+  const nwVec = [pN[0] - pW[0], pN[1] - pW[1]];
+  const vLen = Math.hypot(nwVec[0], nwVec[1]);
+  if (nwVec[0] * vAxis[0] + nwVec[1] * vAxis[1] < 0) {
+    vAxis = [-vAxis[0], -vAxis[1]];
+  }
+
+  // Center of site in (u, v) relative to W corner (parcel is 45.56m along u x 30.18m along v)
+  const siteCx = pW[0] + 22.8 * uAxis[0] + 15.1 * vAxis[0];
+  const siteCz = pW[1] + 22.8 * uAxis[1] + 15.1 * vAxis[1];
 
   // Make rectangular tower footprint aligned with parcel axes:
-  // Approved DA A006954430: ~59-60% site cover of 1,430m2 -> ~850 m2 floorplate
-  // Parcel is ~46.5m (along Lang Pde) x ~29.2m (along Coro Dr) = 1,358 m2
-  // At 60% site cover: ~36.2m x 23.0m = ~833 m2 (with ~5m setback from Coro Dr / rear and ~3m setback from Lang Pde / SW neighbour, matching stop355coro.org/3dview.png!)
+  // Approved DA A006954430 (Rev B, 16/10/2026):
+  //   Official DA survey site area: 1,430 m2 (Lot 3 RP52037 & Lot 16 SP135237)
+  //   Approved site cover: 59.99% (~858 m2 rounded-corner floorplate, ~38.0m x 22.8m)
+  //   Ground FFL: RL 7.20 m AHD (existing NGL avg 6.9 m AHD)
+  //   Podium (Ground, Mezz RL 10.70, L01 RL 13.35): RL 7.20 -> RL 18.50 m AHD
+  //   Main Tower (L02-L19 + Roof Undercroft RL 75.65): RL 18.50 -> Roof Terrace RL 78.35 m AHD
+  //   Recessed Rooftop Pavilion (SW half, cinema/dining/core): RL 78.35 -> Roof RL 83.60 m AHD
   function makeRectRing(cx, cz, halfU, halfV) {
     const corners = [
       [cx - halfU * uAxis[0] - halfV * vAxis[0], cz - halfU * uAxis[1] - halfV * vAxis[1]],
@@ -444,32 +449,43 @@ async function main() {
   }
 
   const proposedGround = Math.round(sampleDemXZ(siteCx, siteCz) * 10) / 10;
-  // Slightly shifted toward Lang Parade / Coronation Dr corner as shown in 3dview.png
-  const tower60Ring = makeRectRing(siteCx, siteCz, 18.2, 11.4); // 36.4m x 22.8m = 830 m2 (~60% site cover)
-  const tower50Ring = makeRectRing(siteCx, siteCz, 16.5, 10.4); // 33.0m x 20.8m = 686 m2 (~50% statutory cover)
+  const tower60Ring = makeRectRing(siteCx, siteCz, 19.0, 11.4); // 38.0m x 22.8m (~858 m2 rounded = 60% of 1,430 m2)
+  const tower50Ring = makeRectRing(siteCx, siteCz, 17.35, 10.4); // 34.7m x 20.8m (~715 m2 rounded = 50% of 1,430 m2)
 
   const proposed355 = {
     id: 'proposed-355-coro',
     addr: '355 Coronation Dr & 6 Lang Pde, Auchenflower (Proposed DA A006954430)',
     shortName: '355 Coronation Dr (Proposed)',
     daRef: 'DA A006954430 ("Bloom")',
-    g: proposedGround,
+    g: proposedGround, // Existing NGL from 0.5m QLD LiDAR DEM (~6.9 m AHD)
+    groundFFL: 7.2,    // Approved Ground Floor FFL (RL 7.200 m AHD, Sheet DA 02-05 / 03-01)
     gMin: proposedGround - 2,
     cx: Math.round(siteCx * 10) / 10,
     cz: Math.round(siteCz * 10) / 10,
+    originCorner: pW,  // SW-W parcel corner in scene (x, z)
     siteParcel: combinedSiteRing,
-    siteArea: siteAreaM2,
+    siteArea: 1430,    // Official DA survey site area (Lot 3 RP52037 + Lot 16 SP135237)
+    parcelAreaGeo: siteAreaM2,
     frontageCoroM: Math.round(vLen * 10) / 10,
     frontageLangM: Math.round(uLen * 10) / 10,
     uAxis,
     vAxis,
-    // Default approved 23-storey tower (76.4m)
     tower60: tower60Ring,
     tower50: tower50Ring,
-    approvedHeight: 76.4,
-    maxHeightWithPlant: 83.6,
-    statutoryHeight: 27.0,
-    hdr2Height: 50.0
+    // Approved DA A006954430 Rev B exact RLs (m AHD) & heights above Ground FFL RL 7.20 m
+    mezzanineRL: 10.7,
+    level01RL: 13.35,
+    podiumTopRL: 18.5,
+    roofUndercroftRL: 75.65,
+    roofTerraceRL: 78.35,
+    approvedRoofRL: 83.6,
+    podiumHeight: 11.3,     // 18.50 - 7.20
+    terraceHeight: 71.15,   // 78.35 - 7.20 (main 22-level shaft + roof undercroft)
+    pavilionHeight: 5.25,   // 83.60 - 78.35 (recessed rooftop pavilion on SW half)
+    typicalFloorH: 3.15,    // Levels 02-19 typical residential floor-to-floor
+    approvedHeight: 76.4,   // 83.60 - 7.20 (23 storeys total)
+    statutoryHeight: 27.0,  // 8 storeys TANP limit (<1,500 m2 lot)
+    hdr2Height: 50.0        // 15 storeys HDR2 zone cap
   };
   console.log('  Proposed 355 Coro:', {
     cx: proposed355.cx,

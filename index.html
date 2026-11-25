@@ -42,7 +42,7 @@
       </div>
       <div class="sun-hud-item">
         <span class="sun-hud-label">355 Coro Tower</span>
-        <span class="sun-hud-val red" id="hud-tower">23st · 76.4m</span>
+        <span class="sun-hud-val red" id="hud-tower">23st · 76.4m (RL 83.6m)</span>
       </div>
       <div class="compass-wrap" id="compass-btn" title="Click to reset North up">
         <svg id="compass-svg" viewBox="0 0 32 32">
@@ -128,28 +128,29 @@
         </label>
 
         <div class="pill-row">
-          <button class="pill-btn active-red" data-scenario="approved" title="Approved DA A006954430 (23 storeys, 76.4m)">23st<br/>76.4m</button>
-          <button class="pill-btn" data-scenario="maxrl" title="Including rooftop elements/overrun (83.6m)">Max<br/>83.6m</button>
-          <button class="pill-btn" data-scenario="hdr2" title="HDR2 zone cap (15 storeys, 50m)">15st<br/>50m</button>
-          <button class="pill-btn" data-scenario="statutory" title="TANP Statutory Limit for <1,500m² lot (8 storeys, 27m)">8st<br/>27m</button>
+          <button class="pill-btn active-red" data-scenario="approved" title="Approved DA A006954430: Ground RL 7.2m, Podium RL 18.5m, Tower Terrace RL 78.35m, Rooftop Pavilion RL 83.60m (76.4m, 60% cover)">23st<br/>76.4m</button>
+          <button class="pill-btn" data-scenario="cover50" title="Approved 76.4m height (RL 83.6m) reduced to 50% site cover benchmark (715 m²)">23st<br/>50%</button>
+          <button class="pill-btn" data-scenario="hdr2" title="HDR2 zone cap (15 storeys, 50m, 50% cover)">15st<br/>50m</button>
+          <button class="pill-btn" data-scenario="statutory" title="TANP Statutory Limit for <1,500m² lot (8 storeys, 27m, 50% cover)">8st<br/>27m</button>
           <button class="pill-btn" data-scenario="off" title="Existing baseline buildings only">Off</button>
         </div>
 
         <div class="control-row">
-          <label for="height-slider">Tower Height (above NGL 6.9m)</label>
+          <label for="height-slider">Tower Height (above Ground RL 7.2m)</label>
           <span class="control-val" id="height-val">76.4 m</span>
         </div>
         <input type="range" id="height-slider" class="red-slider" min="0" max="100" step="0.2" value="76.4" />
 
         <div class="control-row">
-          <label for="cover-slider">Tower Site Cover (~1,359m² lot)</label>
-          <span class="control-val" id="cover-val">60% (829 m²)</span>
+          <label for="cover-slider">Tower Site Cover (1,430 m² DA lot)</label>
+          <span class="control-val" id="cover-val">60% (858 m²)</span>
         </div>
         <input type="range" id="cover-slider" class="red-slider" min="40" max="75" step="1" value="60" />
 
         <div class="control-row" style="font-size:10.5px; color:var(--text-muted)">
-          <span>Roof RL (AHD): <strong id="tower-rl" style="color:var(--text-primary)">83.3 m</strong></span>
-          <span>Est. Storeys: <strong id="tower-storeys" style="color:var(--text-primary)">23</strong></span>
+          <span>Roof RL: <strong id="tower-rl" style="color:var(--text-primary)">83.6 m</strong></span>
+          <span>Terrace: <strong id="tower-terrace-rl" style="color:var(--text-primary)">78.35 m</strong></span>
+          <span>Storeys: <strong id="tower-storeys" style="color:var(--text-primary)">23</strong></span>
         </div>
       </section>
 
