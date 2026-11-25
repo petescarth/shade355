@@ -1278,11 +1278,29 @@
     }
   });
 
+  // ==================== WIND TUNNEL MODULE REFERENCE ====================
+  let windTunnel = null;
+
   renderer.domElement.addEventListener('pointerup', (e) => {
     if (!pointerDownPos || e.button !== 0) return;
     const dist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
     pointerDownPos = null;
     if (dist > 5) return; // Was a drag/orbit, not a click
+
+    // In Wind Tunnel mode, clicking terrain or rooftop drops the 3D wind probe
+    if (windTunnel && windTunnel.isActive()) {
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouseNDC, camera);
+      const targets = [terrainMesh];
+      if (proposedMeshObj && proposedMeshObj.mesh.visible) targets.unshift(proposedMeshObj.mesh);
+      const hits = raycaster.intersectObjects(targets, false);
+      if (hits.length) {
+        const hitProp = !!(proposedMeshObj && hits[0].object === proposedMeshObj.mesh);
+        if (windTunnel.onSceneClick(hits[0].point, hitProp)) return;
+      }
+    }
 
     const picked = pickAtClient(e.clientX, e.clientY);
     if (picked) {
@@ -1392,11 +1410,12 @@
       }
     }
     runImpactScan();
+    if (windTunnel) windTunnel.onProposedChanged();
   }
 
   function switchTab(tabName) {
-    document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === tabName));
-    document.querySelectorAll('.tab-pane').forEach((p) => p.classList.toggle('active', p.id === `tab-${tabName}`));
+    document.querySelectorAll('#right-solar-pane .tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === tabName));
+    document.querySelectorAll('#right-solar-pane .tab-pane').forEach((p) => p.classList.toggle('active', p.id === `tab-${tabName}`));
   }
 
   // Date pills & custom date
@@ -1557,8 +1576,8 @@
     toggleRightBtn.style.display = 'none';
   });
 
-  // Right panel tabs
-  document.querySelectorAll('.tab-btn').forEach((btn) => {
+  // Right panel solar tabs
+  document.querySelectorAll('#right-solar-pane .tab-btn').forEach((btn) => {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
 
@@ -1640,6 +1659,9 @@
       setMinutes(nextM);
     }
 
+    // Step 3D Wind Tunnel streamlines when active
+    if (windTunnel) windTunnel.animate(dt);
+
     controls.update();
 
     // Keep shadow frustum anchored smoothly around camera target
@@ -1656,6 +1678,23 @@
   updateDaySummaryUI();
   updateSunAndLighting();
   runImpactScan();
+
+  // Initialize 3D Wind Tunnel (Navier-Stokes CFD + 10-year Brisbane Wind Climate)
+  if (window.initWindTunnelUI) {
+    windTunnel = window.initWindTunnelUI({
+      THREE,
+      scene,
+      shadingEngine: engine,
+      sceneData: DATA,
+      windClimate: window.WIND_CLIMATE,
+      getAppState: () => state,
+      flyTo,
+      onModeChange: (mode) => {
+        // Hide solar surface heatmap overlay when inspecting Wind Tunnel mode
+        if (overlayGroup) overlayGroup.visible = mode === 'solar';
+      }
+    });
+  }
 
   // Pre-select 8 Dunmore Terrace's most impacted facade on startup so the user immediately sees
   // the live 3D surface shading heatmap + daily % shaded chart in action!

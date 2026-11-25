@@ -20,6 +20,11 @@ The simulator models **1,570 measured Brisbane buildings** over a **Queensland 0
   - Ray-traces surrounding buildings within **450 m** of the site across the selected date (8:00 AM–4:00 PM at 30-minute steps + current time), ranking every neighbour experiencing ≥ 1.5% additional overshadowing and allowing one-click fly-to at each building's peak impact time.
 - **Scenario & A/B Massing Controls**
   - Toggle the proposed building on/off for instant baseline comparison, switch between regulatory/DA presets, or adjust tower height (`0–100 m` above `RL 7.20 m` AHD Ground FFL) and site cover (`40%–75%` of the `1,430 m²` approved DA site).
+- **3D Urban Wind Tunnel (In-Browser CFD) & 10-Year Brisbane Weather History**
+  - Switch to **💨 Wind Tunnel** in the top bar to run an interactive **3D incompressible Navier-Stokes CFD** simulation (`WebGL2 GPU 96×96×32` with automatic `CPU 64×64×26` fallback) over a `320 m × 320 m × 104 m` domain centered on 355 Coronation Drive.
+  - Captures true 3D atmospheric boundary layer profiles, facade stagnation, **3D downwash**, corner Venturi acceleration, and wake recirculation comparing **Existing Baseline** vs **With 355 Coro** across any height/site-cover scenario.
+  - Ships with **10 years (`95,448` hours, 2016–2026)** of pre-compiled site wind climate from Open-Meteo ERA5 and Brisbane Airport (`YBBN`) METAR anemometer gusts (`data/wind-climate.js`), including real historical edge-case presets (*Ex-TC Alfred*, *Ex-TC Debbie*, *SSW Channel Funnel*, *Winter Westerly*, *YBBN Supercell Peak*), an interactive 16-sector Brisbane Wind Rose, online historical date replay, animated 3D streamlines, pedestrian heatmap (`Δ Impact`, `Speed`, `Lawson Comfort`, `Downwash`), movable wind-aligned vertical cross-section slice, click-to-probe anemometer with vertical profile chart, and an **8-Direction CFD × 10-Year Climate Edge-Case & Condition 30 Scanner**.
+  - *Note:* The browser CFD model (`~3.3 m` voxels) is a screening & comparative impact tool, not a certified RPEQ / AS/NZS 1170.2 compliance wind tunnel study.
 - **Offline / `file://` Ready**
   - All scripts, libraries, terrain DEM grids, building footprints, and basemap textures are self-contained locally and loaded via classic `<script>` tags so the app works both from a local HTTP server and when opened directly via `file://`.
 
@@ -35,6 +40,7 @@ All spatial datasets are pre-compiled into [data/scene-data.js](data/scene-data.
 | **Property Boundaries & Street Addresses** | Brisbane City Council Property Holdings (`Prop_Boundaries/FeatureServer/2`) | Spatial-hashed parcel polygons used to match building centroids to street addresses (`UNIT_HOUSE_NUMBER` / `HOUSE_NUMBER`, `CORRIDOR_NAME`, `CORRIDOR_SUFFIX_CODE`, `SUBURB`) and flag existing structures on the `355 Coronation Dr` / `6 Lang Pde` site (`onSite355`). |
 | **Terrain Elevation (DEM)** | Queensland Government 0.5m LiDAR DEM (`Elevation/QldDem` ImageServer) | Sampled as a `200 × 174` (`~8.7 m` spacing) 32-bit float GeoTIFF, quantized to decimetres (`0.1 m` AHD) with underwater riverbed elevations clamped to `0.2 m` AHD for smooth river representation and hill/ridge terrain occlusion. |
 | **Terrain Basemap Textures** | Esri ArcGIS REST MapServer Exports | Three `1600 × 1391` JPEG textures embedded as base64 data URIs in [data/basemaps.js](data/basemaps.js): `Canvas/World_Light_Gray_Base` (*Architectural*), `World_Street_Map` (*Street Map*), and `World_Imagery` (*Satellite*). |
+| **Historical Wind Climate & Extremes** | Open-Meteo Historical Archive (ERA5/ACCESS) & Brisbane Airport (`YBBN`) METAR (IEM ASOS) | `95,448` hourly wind/gust records (`2016-01-01`–`2026-11-20`) at `-27.4752, 153.0026` plus `YBBN` peak storm gusts compiled by [scripts/fetch_wind_history.mjs](scripts/fetch_wind_history.mjs) into [data/wind-climate.js](data/wind-climate.js) (16-sector wind rose, speed histograms, and curated historical edge-case presets). |
 | **Proposed Tower Parameters** | BCC Approved DA `A006954430` (Rev B, 16/10/2026) | Combined `355 Coronation Dr` + `6 Lang Pde` site (`1,430 m²` survey area; Lot 3 RP52037 & Lot 16 SP135237; existing NGL `~6.9 m` AHD, approved Ground FFL `RL 7.20 m` AHD). Multi-tier stepped rounded-corner profile: **Podium** (Ground–L01, `RL 7.20–18.50 m`), **Main Residential Tower** (L02–L19 + Roof Undercroft to Roof Terrace, `RL 18.50–78.35 m`, `~858 m²` / `60%` site cover), and **Recessed Rooftop Pavilion** on the SW half (`RL 78.35–83.60 m`, `76.4 m` total height, 23 storeys, with open 25 m lap pool terrace on the NE half). Presets include Approved DA (`23st 76.4m`, 60% cover), Approved Height at 50% Site Cover (`23st 50%`), HDR2 zone cap (`15st 50m`, 50% cover), and TANP statutory limit for `< 1,500 m²` lots (`8st 27m`, 50% cover). |
 
 ---
@@ -131,14 +137,18 @@ shade355/
 │   └── style.css            # Glassmorphic dark-HUD styling and responsive layout
 ├── data/
 │   ├── scene-data.js        # Prebuilt DEM grid, 1,570 building prisms, and 355 Coro parcel/tower config
-│   └── basemaps.js          # Base64-encoded Light Gray, Street Map, and Satellite textures
+│   ├── basemaps.js          # Base64-encoded Light Gray, Street Map, and Satellite textures
+│   └── wind-climate.js      # 10-year (95,448 hr) site wind rose, speed histograms & historical extreme presets
 ├── js/
 │   ├── solar.js             # NOAA / Jean Meeus solar position & day-summary calculator
 │   ├── raytracer.js         # 2D DDA + polygonal prism + DEM ray-traced shading engine
+│   ├── wind-solver.js       # 3D Navier-Stokes CFD engine (WebGL2 GPU + CPU fallback) & climate convolution
+│   ├── wind-ui.js           # 3D wind overlays (heatmap, streamlines, slice, probe), wind rose & Condition 30 UI
 │   └── app.js               # Three.js scene, shadow mapping, 3D heatmap overlay, charts & UI
 ├── lib/
 │   ├── three.min.js         # Three.js r147 (MIT)
 │   └── OrbitControls.js     # Three.js OrbitControls
 └── scripts/
-    └── build_dataset.mjs    # Node.js data ingestion & GeoTIFF/ArcGIS build script
+    ├── build_dataset.mjs    # Node.js data ingestion & GeoTIFF/ArcGIS build script
+    └── fetch_wind_history.mjs # Node.js 10-year Open-Meteo + YBBN METAR wind climate builder
 ```

@@ -946,3 +946,237 @@ input[type="range"].red-slider::-webkit-slider-thumb {
   #right-panel { width: 320px; }
   .camera-bar { display: none; }
 }
+
+
+/* ==================== WIND TUNNEL MODE & CONTROLS ==================== */
+.mode-switch-pill {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px;
+  border-radius: var(--radius);
+}
+
+.mode-btn {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 6px 11px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.16s ease;
+  white-space: nowrap;
+}
+
+.mode-btn:hover {
+  color: var(--text-primary);
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.mode-btn.active-solar {
+  background: var(--accent-sun-soft);
+  border-color: rgba(245, 158, 11, 0.45);
+  color: #fde68a;
+}
+
+.mode-btn.active-wind {
+  background: rgba(56, 189, 248, 0.18);
+  border-color: rgba(56, 189, 248, 0.55);
+  color: #7dd3fc;
+}
+
+.sun-hud-val.cyan {
+  color: var(--accent-cyan);
+}
+
+.wind-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+}
+
+.wind-preset-btn {
+  border: 1px solid var(--border);
+  background: rgba(15, 23, 42, 0.55);
+  color: var(--text-secondary);
+  font-family: var(--font);
+  font-size: 10px;
+  line-height: 1.25;
+  font-weight: 600;
+  padding: 6px 4px;
+  border-radius: 7px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s ease;
+}
+
+.wind-preset-btn:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+  background: rgba(51, 65, 85, 0.7);
+}
+
+.wind-preset-btn.extreme {
+  border-color: rgba(244, 63, 94, 0.28);
+}
+
+.wind-preset-btn.active {
+  background: rgba(56, 189, 248, 0.22);
+  border-color: rgba(56, 189, 248, 0.75);
+  color: #e0f2fe;
+}
+
+.wind-preset-btn.extreme.active {
+  background: rgba(244, 63, 94, 0.22);
+  border-color: rgba(244, 63, 94, 0.78);
+  color: #ffe4e6;
+}
+
+.wind-note-box {
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  background: rgba(15, 23, 42, 0.52);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 7px 9px;
+}
+
+.wind-rose-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 0;
+}
+
+#wind-rose-svg {
+  width: 184px;
+  height: 184px;
+  cursor: pointer;
+  overflow: visible;
+}
+
+.wind-replay-row {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.wind-replay-row input[type="date"],
+.wind-replay-row select {
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 5px 6px;
+}
+
+.wind-replay-row input[type="date"] {
+  flex: 1.3;
+  min-width: 0;
+}
+
+.wind-replay-row select {
+  width: 62px;
+}
+
+.wind-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid var(--border);
+}
+
+.wind-progress-track {
+  width: 100%;
+  height: 5px;
+  border-radius: 99px;
+  background: rgba(148, 163, 184, 0.16);
+  overflow: hidden;
+  display: none;
+}
+
+.wind-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #38bdf8, #f43f5e);
+  transition: width 0.18s ease;
+}
+
+.lawson-pill {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 99px;
+  color: #0b1120;
+}
+
+.wind-legend-bar {
+  height: 8px;
+  border-radius: 99px;
+  margin-top: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.wind-legend-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9.5px;
+  font-family: var(--mono);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.wind-edge-item {
+  background: rgba(15, 23, 42, 0.62);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.wind-edge-item:hover {
+  border-color: rgba(56, 189, 248, 0.6);
+  background: rgba(30, 41, 59, 0.85);
+}
+
+.wind-edge-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.wind-edge-sub {
+  font-size: 10px;
+  color: var(--text-muted);
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+}
+
+.probe-btn-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 5px;
+}
+
+.probe-btn-grid .pill-btn:last-child:nth-child(odd) {
+  grid-column: span 2;
+}

@@ -27,7 +27,12 @@
       </div>
     </div>
 
-    <div class="sun-hud-pill glass">
+    <div class="mode-switch-pill glass" role="tablist" aria-label="Simulation Mode">
+      <button class="mode-btn active-solar" id="mode-btn-solar" data-appmode="solar">☀ Solar &amp; Shade</button>
+      <button class="mode-btn" id="mode-btn-wind" data-appmode="wind">💨 Wind Tunnel</button>
+    </div>
+
+    <div class="sun-hud-pill glass" id="sun-hud-pill">
       <div class="sun-hud-item">
         <span class="sun-hud-label">Local Time (AEST)</span>
         <span class="sun-hud-val amber" id="hud-datetime">21 Jun · 09:30</span>
@@ -54,6 +59,25 @@
       </div>
     </div>
 
+    <div class="sun-hud-pill glass" id="wind-hud-pill" style="display:none">
+      <div class="sun-hud-item">
+        <span class="sun-hud-label">Wind Event / From</span>
+        <span class="sun-hud-val cyan" id="whud-dir">48° NE · TC Debbie</span>
+      </div>
+      <div class="sun-hud-item">
+        <span class="sun-hud-label">Ref Wind (10m)</span>
+        <span class="sun-hud-val amber" id="whud-ref">22.3 m/s · 80 km/h</span>
+      </div>
+      <div class="sun-hud-item">
+        <span class="sun-hud-label">Peak Street Δ</span>
+        <span class="sun-hud-val red" id="whud-peak">—</span>
+      </div>
+      <div class="sun-hud-item">
+        <span class="sun-hud-label">355 Coro Tower</span>
+        <span class="sun-hud-val red" id="whud-tower">23st · 76.4m</span>
+      </div>
+    </div>
+
     <div class="camera-bar glass">
       <button class="cam-btn active" data-cam="focus355">355 Coro</button>
       <button class="cam-btn" data-cam="dunmore">Dunmore Tce</button>
@@ -70,12 +94,12 @@
   <!-- Left Panel: Solar & Proposed Tower Controls -->
   <aside id="left-panel" class="side-panel glass">
     <div class="panel-header">
-      <h2>Solar &amp; Scenario Controls</h2>
+      <h2 id="left-panel-title">Solar &amp; Scenario Controls</h2>
       <button class="icon-btn" id="collapse-left" title="Hide panel">✕</button>
     </div>
     <div class="panel-scroll">
-      <!-- Solar Date & Time -->
-      <section class="section-card">
+      <!-- Solar Date & Time (Solar Mode) -->
+      <section class="section-card" id="solar-datetime-card">
         <div class="section-title">
           <span>Solar Date &amp; Time</span>
           <span class="badge amber" id="day-season-badge">Winter Solstice</span>
@@ -114,6 +138,99 @@
           </select>
         </div>
       </section>
+
+      <!-- Wind Tunnel Controls (Wind Mode) -->
+      <div id="wind-left-controls" style="display:none; flex-direction:column; gap:10px;">
+        <section class="section-card">
+          <div class="section-title">
+            <span>Historical Edge Cases &amp; Rose</span>
+            <span class="badge cyan" id="wind-backend-badge">3D CFD</span>
+          </div>
+
+          <div class="wind-preset-grid" id="wind-preset-grid"></div>
+          <div class="wind-note-box" id="wind-preset-note">Select a real 2016–2026 Brisbane wind event or click any sector on the 10-year wind rose below.</div>
+
+          <div class="wind-rose-wrap">
+            <svg id="wind-rose-svg" viewBox="-100 -100 200 200" title="10-Year 355 Coro Wind Rose (Click any compass direction)"></svg>
+          </div>
+
+          <div class="control-row">
+            <label for="wind-dir-slider">Wind From Direction</label>
+            <span class="control-val" id="wind-dir-val">48° NE</span>
+          </div>
+          <input type="range" id="wind-dir-slider" min="0" max="359" step="1" value="48" />
+
+          <div class="control-row">
+            <label for="wind-speed-slider">Ref Speed @ 10m AGL</label>
+            <span class="control-val" id="wind-speed-val">22.3 m/s (80 km/h)</span>
+          </div>
+          <input type="range" id="wind-speed-slider" min="3" max="44" step="0.5" value="22.3" />
+
+          <div class="control-row" style="margin-top:4px">
+            <label>Replay Real Past Date (Online)</label>
+          </div>
+          <div class="wind-replay-row">
+            <input type="date" id="wind-hist-date" value="2025-03-08" min="1940-01-01" max="2026-11-20" />
+            <select id="wind-hist-hour" title="Hour (AEST)">
+              <option value="06">06:00</option>
+              <option value="09">09:00</option>
+              <option value="12">12:00</option>
+              <option value="15">15:00</option>
+              <option value="18">18:00</option>
+              <option value="20" selected>20:00</option>
+              <option value="23">23:00</option>
+            </select>
+            <button class="pill-btn" id="btn-fetch-hist-wind" style="flex:0 0 auto; padding:5px 8px">Fetch</button>
+          </div>
+          <div class="wind-status-bar">
+            <span id="wind-solve-status">Ready (3D Navier-Stokes)</span>
+            <span id="wind-solve-ms" style="font-family:var(--mono)">—</span>
+          </div>
+        </section>
+
+        <section class="section-card">
+          <div class="section-title">
+            <span>3D Wind Tunnel Layers</span>
+          </div>
+
+          <div class="control-row"><label>Pedestrian Map (DEM + 1.5m)</label></div>
+          <div class="pill-row">
+            <button class="pill-btn active-cyan" data-windmap="delta">Δ Impact</button>
+            <button class="pill-btn" data-windmap="speed">Speed</button>
+            <button class="pill-btn" data-windmap="lawson">Lawson</button>
+            <button class="pill-btn" data-windmap="downwash">Downwash</button>
+          </div>
+
+          <div id="wind-legend-wrap">
+            <div class="wind-legend-bar" id="wind-legend-bar"></div>
+            <div class="wind-legend-labels">
+              <span id="wind-leg-min">Shelter</span>
+              <span id="wind-leg-mid">0</span>
+              <span id="wind-leg-max">+10 m/s</span>
+            </div>
+          </div>
+
+          <label class="toggle-row" style="margin-top:4px">
+            <span>Show Pedestrian Wind Map</span>
+            <input type="checkbox" id="toggle-wind-map" checked />
+          </label>
+          <label class="toggle-row">
+            <span>Animated 3D Wind Streamlines</span>
+            <input type="checkbox" id="toggle-wind-particles" checked />
+          </label>
+          <label class="toggle-row">
+            <span>Vertical Airflow Cross-Section</span>
+            <input type="checkbox" id="toggle-wind-slice" />
+          </label>
+          <div id="wind-slice-controls" style="display:none; flex-direction:column; gap:4px;">
+            <div class="control-row">
+              <label for="wind-slice-slider">Slice Position (Cross-Wind)</label>
+              <span class="control-val" id="wind-slice-val">0 m</span>
+            </div>
+            <input type="range" id="wind-slice-slider" min="-110" max="110" step="2" value="0" />
+          </div>
+        </section>
+      </div>
 
       <!-- Proposed 355 Coronation Drive Tower -->
       <section class="section-card">
@@ -192,25 +309,27 @@
         </label>
       </section>
 
-      <div class="source-note">
-        <strong>Data Sources:</strong> Building footprints &amp; measured heights (<code>BUILDINGHEIGHTM</code>) from Brisbane City Council Nearmap/LiDAR open data. Terrain from QLD 0.5m LiDAR DEM. Proposed tower parameters from BCC Approved Development Application <code>DA A006954430</code> (Rev B). Region: <code>152.9949,-27.4825</code> to <code>153.0124,-27.4689</code>.
+      <div class="source-note" id="source-note-box">
+        <strong>Data Sources:</strong> Building footprints &amp; measured heights (<code>BUILDINGHEIGHTM</code>) from Brisbane City Council Nearmap/LiDAR open data. Terrain from QLD 0.5m LiDAR DEM. Proposed tower parameters from BCC Approved Development Application <code>DA A006954430</code> (Rev B). 10-year wind climate (95,448 hrs) from Open-Meteo ERA5 &amp; Brisbane Airport (<code>YBBN</code>) METAR. Region: <code>152.9949,-27.4825</code> to <code>153.0124,-27.4689</code>.
       </div>
     </div>
   </aside>
 
-  <!-- Right Panel: Surface Shading Inspector & Impacted Neighbours -->
+  <!-- Right Panel: Surface Shading Inspector / Wind Tunnel Inspector -->
   <aside id="right-panel" class="side-panel glass">
     <div class="panel-header">
-      <h2>Surface Shading Simulator</h2>
+      <h2 id="right-panel-title">Surface Shading Simulator</h2>
       <button class="icon-btn" id="collapse-right" title="Hide panel">✕</button>
     </div>
 
-    <div class="tab-bar">
-      <button class="tab-btn active" data-tab="inspector">Surface Inspector</button>
-      <button class="tab-btn" data-tab="impact">Impacted Neighbours <span id="impact-count-badge" class="badge red" style="margin-left:3px">–</span></button>
-    </div>
+    <!-- Solar Tabs & Content -->
+    <div id="right-solar-pane" style="display:flex; flex-direction:column; flex:1; min-height:0;">
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="inspector">Surface Inspector</button>
+        <button class="tab-btn" data-tab="impact">Impacted Neighbours <span id="impact-count-badge" class="badge red" style="margin-left:3px">–</span></button>
+      </div>
 
-    <div class="panel-scroll">
+      <div class="panel-scroll">
       <!-- TAB 1: Surface Inspector -->
       <div id="tab-inspector" class="tab-pane active">
         <div id="inspector-empty" class="section-card empty-state">
@@ -346,6 +465,160 @@
 
         <div id="impact-list" class="impact-list"></div>
       </div>
+      </div>
+    </div>
+
+    <!-- Wind Tunnel Tabs & Content -->
+    <div id="right-wind-pane" style="display:none; flex-direction:column; flex:1; min-height:0;">
+      <div class="tab-bar">
+        <button class="tab-btn active" data-wtab="probe">Wind Probe</button>
+        <button class="tab-btn" data-wtab="edgecases">Edge Cases &amp; Cond. 30</button>
+      </div>
+
+      <div class="panel-scroll">
+        <!-- WIND TAB 1: Pedestrian & Rooftop Probe -->
+        <div id="wtab-probe" class="tab-pane active">
+          <section class="section-card">
+            <div class="section-title">
+              <span>Probe Location</span>
+              <span class="badge cyan" id="wprobe-elev">DEM + 1.5m</span>
+            </div>
+            <div class="bldg-title" id="wprobe-label">Coronation Dr Footpath</div>
+            <p style="font-size:10.5px; color:var(--text-muted); margin-bottom:6px">
+              Click anywhere on the ground, street, or rooftop terrace to drop the 3D anemometer probe, or pick a Condition 30 checkpoint:
+            </p>
+            <div class="probe-btn-grid" id="wind-quick-probes"></div>
+          </section>
+
+          <section class="section-card">
+            <div class="section-title">
+              <span>Baseline vs With 355 Coro</span>
+              <span class="badge amber" id="wprobe-dir-badge">48° NE</span>
+            </div>
+
+            <div class="kpi-grid">
+              <div class="kpi-box">
+                <div class="kpi-label">With 355 Coro</div>
+                <div class="kpi-value" id="wkpi-prop">—</div>
+                <div class="kpi-sub" id="wkpi-prop-kmh">— km/h</div>
+              </div>
+              <div class="kpi-box">
+                <div class="kpi-label">Existing Base</div>
+                <div class="kpi-value" id="wkpi-base" style="color:var(--text-secondary)">—</div>
+                <div class="kpi-sub" id="wkpi-base-kmh">— km/h</div>
+              </div>
+              <div class="kpi-box highlight-red">
+                <div class="kpi-label">355 Coro Impact</div>
+                <div class="kpi-value" id="wkpi-delta" style="color:#fb7185">—</div>
+                <div class="kpi-sub" id="wkpi-delta-pct">—</div>
+              </div>
+            </div>
+
+            <div class="control-row" style="margin-top:4px; font-size:11px">
+              <span>Lawson Comfort:</span>
+              <span><span id="wlawson-base" class="lawson-pill">—</span> → <span id="wlawson-prop" class="lawson-pill">—</span></span>
+            </div>
+            <div class="control-row" style="font-size:11px; color:var(--text-secondary)">
+              <span>Speedup Factor (K): <strong id="wprobe-k" style="color:var(--text-primary)">—</strong></span>
+              <span>Downwash: <strong id="wprobe-dw" style="color:var(--accent-cyan)">—</strong></span>
+            </div>
+          </section>
+
+          <section class="section-card">
+            <div class="section-title">
+              <span>Vertical Wind Profile (0–96m AHD)</span>
+              <span class="badge">m/s vs RL</span>
+            </div>
+            <div class="chart-box">
+              <div class="chart-header">
+                <span><span style="color:#38bdf8">━</span> With 355 Coro &nbsp; <span style="color:#94a3b8">┅</span> Baseline</span>
+                <span>Height (m AHD)</span>
+              </div>
+              <svg id="wind-profile-svg" viewBox="0 0 320 148"></svg>
+            </div>
+          </section>
+
+          <section class="section-card">
+            <div class="section-title">
+              <span>320m Wind Tunnel Summary</span>
+              <span class="badge">3D CFD</span>
+            </div>
+            <table class="stat-table">
+              <tbody>
+                <tr>
+                  <td>Peak Pedestrian Speed</td>
+                  <td colspan="2" style="text-align:right; font-family:var(--mono)" id="wsum-max">—</td>
+                </tr>
+                <tr>
+                  <td>Peak 355 Coro Δ Speed</td>
+                  <td colspan="2" style="text-align:right; font-family:var(--mono); color:#fb7185" id="wsum-delta">—</td>
+                </tr>
+                <tr>
+                  <td>Peak Facade Downwash</td>
+                  <td colspan="2" style="text-align:right; font-family:var(--mono); color:#38bdf8" id="wsum-dw">—</td>
+                </tr>
+                <tr>
+                  <td>Street Area ≥ 8 m/s</td>
+                  <td colspan="2" style="text-align:right; font-family:var(--mono)" id="wsum-area8">—</td>
+                </tr>
+                <tr>
+                  <td>Street Area ≥ 15 m/s</td>
+                  <td colspan="2" style="text-align:right; font-family:var(--mono)" id="wsum-area15">—</td>
+                </tr>
+              </tbody>
+            </table>
+            <p style="font-size:9.8px; color:var(--text-muted); line-height:1.38; margin-top:4px">
+              <strong>Screening Disclaimer:</strong> 3D incompressible Navier-Stokes CFD (~3.3m voxels) for interactive A/B &amp; downwash screening. Not a substitute for a certified RPEQ / AS 1170.2 wind tunnel study under Condition 30.
+            </p>
+          </section>
+        </div>
+
+        <!-- WIND TAB 2: 8-Direction Edge Cases & Condition 30 Annual Climate -->
+        <div id="wtab-edgecases" class="tab-pane">
+          <section class="section-card">
+            <div class="section-title">
+              <span>10-Year Weather × 3D CFD Scan</span>
+              <span class="badge cyan">95,448 hrs</span>
+            </div>
+            <p style="font-size:10.8px; color:var(--text-secondary); line-height:1.42">
+              Solves 3D airflow across <strong>8 compass directions</strong> (Baseline vs Proposed) and convolves with 2016–2026 Brisbane wind history (ERA5 + <code>YBBN</code> METAR) to find worst-case site edge cases &amp; annual Lawson comfort shifts.
+            </p>
+            <button class="action-btn" id="btn-run-wind-scan">↻ Run 8-Dir Edge-Case &amp; Cond. 30 Scan</button>
+            <div class="wind-progress-track" id="wind-scan-progress">
+              <div class="wind-progress-fill" id="wind-scan-fill"></div>
+            </div>
+            <div style="font-size:10.5px; color:var(--text-muted); text-align:center" id="wind-scan-msg"></div>
+          </section>
+
+          <section class="section-card" id="wind-edge-card" style="display:none">
+            <div class="section-title">
+              <span>Top Aerodynamic Edge Cases</span>
+              <span class="badge red">Click to simulate</span>
+            </div>
+            <div id="wind-edge-list" style="display:flex; flex-direction:column; gap:6px"></div>
+          </section>
+
+          <section class="section-card" id="wind-cond30-card" style="display:none">
+            <div class="section-title">
+              <span>Condition 30 Annual Comfort (10-yr)</span>
+              <span class="badge amber">Base → 355</span>
+            </div>
+            <div style="overflow-x:auto">
+              <table class="stat-table" id="wind-cond30-table">
+                <thead>
+                  <tr>
+                    <th>Checkpoint</th>
+                    <th>&gt;4m/s</th>
+                    <th>&gt;8m/s</th>
+                    <th>Worst</th>
+                  </tr>
+                </thead>
+                <tbody id="wind-cond30-body"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
     </div>
   </aside>
 
@@ -360,7 +633,7 @@
     <span><kbd>Left-Drag</kbd> Rotate</span>
     <span><kbd>Right-Drag</kbd> Pan</span>
     <span><kbd>Scroll</kbd> Zoom</span>
-    <span><kbd>Click</kbd> Any Wall or Roof to Simulate % Shaded</span>
+    <span id="hint-click-action"><kbd>Click</kbd> Any Wall or Roof to Simulate % Shaded</span>
   </div>
 
   <!-- Scripts (classic order for 100% file:// and http:// compatibility) -->
@@ -368,8 +641,11 @@
   <script src="lib/OrbitControls.js"></script>
   <script src="data/scene-data.js"></script>
   <script src="data/basemaps.js"></script>
+  <script src="data/wind-climate.js"></script>
   <script src="js/solar.js"></script>
   <script src="js/raytracer.js"></script>
+  <script src="js/wind-solver.js"></script>
+  <script src="js/wind-ui.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
