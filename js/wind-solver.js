@@ -1330,11 +1330,169 @@
     }
 
     /**
+     * Check whether all 8 compass directions (0..315 step 45) are already cached
+     * for both baseline and the active proposed tower configuration.
+     */
+    hasEightDirCache() {
+      const scanDirs = [0, 45, 90, 135, 180, 225, 270, 315];
+      const propSig = this.shadingEngine.proposedPrism ? `proposed_${this.getProposedSignature()}` : 'baseline';
+      for (const d of scanDirs) {
+        if (!this.fieldCache.has(`baseline|${d}`)) return false;
+        if (!this.fieldCache.has(`${propSig}|${d}`)) return false;
+      }
+      return true;
+    }
+
+    /**
+     * Fast (<2ms) 10-year Brisbane climate & historical storm edge-case evaluation
+     * at ANY specific 3D probe point using the cached 8-direction CFD fields.
+     */
+    evaluatePointClimate(probe) {
+      if (!probe || !this.hasEightDirCache()) return null;
+      const scanDirs = [0, 45, 90, 135, 180, 225, 270, 315];
+      const propSig = this.shadingEngine.proposedPrism ? `proposed_${this.getProposedSignature()}` : 'baseline';
+
+      const groundHere = this.shadingEngine.sampleDem(probe.x, probe.z);
+      const evalY = Math.max(groundHere + 1.5, probe.y);
+      const hAGL = evalY - groundHere;
+
+      const dirK = [];
+      for (const d of scanDirs) {
+        const base = this.fieldCache.get(`baseline|${d}`);
+        const prop = this.fieldCache.get(`${propSig}|${d}`);
+        const refNorm = probe.isRooftop ? U10_NORM : prop.uPedRefNorm;
+        const sp = this.sampleVelocity(prop, probe.x, evalY, probe.z, U10_NORM);
+        const sb = this.sampleVelocity(base, probe.x, evalY, probe.z, U10_NORM);
+        const kProp = sp.speed / refNorm;
+        const kBase = sb.speed / refNorm;
+        dirK.push({
+          dirDeg: d,
+          kProp,
+          kBase,
+          deltaK: kProp - kBase,
+          downwashNorm: sp.downwash
+        });
+      }
+
+      const interpK = (deg) => {
+        const norm = ((deg % 360) + 360) % 360;
+        const idxF = norm / 45;
+        const i0 = Math.floor(idxF) % 8;
+        const i1 = (i0 + 1) % 8;
+        const t = idxF - Math.floor(idxF);
+        const a = dirK[i0], b = dirK[i1];
+        return {
+          kProp: a.kProp * (1 - t) + b.kProp * t,
+          kBase: a.kBase * (1 - t) + b.kBase * t,
+          deltaK: a.deltaK * (1 - t) + b.deltaK * t
+        };
+      };
+
+      const climate = this.climate;
+      let pctSitBase = 0, pctSitProp = 0;
+      let pctWalkBase = 0, pctWalkProp = 0;
+      let pctDistBase = 0, pctDistProp = 0;
+      let worstDir = '—';
+      let maxDeltaK = -99;
+      let maxKProp = 0;
+
+      if (climate && climate.roseAnnual) {
+        const edges = climate.meta.speedBinEdges;
+        const binMids = [];
+        for (let b = 0; b < edges.length - 1; b++) {
+          binMids.push(b === edges.length - 2 ? edges[b] + 2.0 : (edges[b] + edges[b + 1]) * 0.5);
+        }
+
+        for (const sec of climate.roseAnnual) {
+          const pk = interpK(sec.deg);
+          if (pk.deltaK > maxDeltaK) {
+            maxDeltaK = pk.deltaK;
+            worstDir = `${sec.dir} (${Math.round(sec.deg)}°)`;
+          }
+          if (pk.kProp > maxKProp) maxKProp = pk.kProp;
+
+          const alpha = getRoughnessAlpha(sec.deg);
+          const pedRatio = probe.isRooftop ? 1.0 : Math.pow(1.5 / 10.0, alpha);
+
+          for (let b = 0; b < binMids.length; b++) {
+            const fracMean = sec.binFrac[b] || 0;
+            const fracGust = sec.gustBinFrac[b] || 0;
+            const u10 = binMids[b];
+            const localBase = u10 * pedRatio * pk.kBase;
+            const localProp = u10 * pedRatio * pk.kProp;
+            if (localBase >= 4.0) pctSitBase += fracMean * 100;
+            if (localProp >= 4.0) pctSitProp += fracMean * 100;
+            if (localBase >= 8.0) pctWalkBase += fracMean * 100;
+            if (localProp >= 8.0) pctWalkProp += fracMean * 100;
+            if (localBase >= 15.0) pctDistBase += fracGust * 100;
+            if (localProp >= 15.0) pctDistProp += fracGust * 100;
+          }
+        }
+      }
+
+      // Score all historical extreme storms specifically at this probe point
+      const edgeCases = [];
+      if (climate) {
+        const allEvents = [
+          ...(climate.topSiteExtremes || []).map((e) => ({ ...e, src: '355 Coro (ERA5)' })),
+          ...(climate.topYbbnStorms || []).slice(0, 4).map((e) => ({ ...e, src: 'YBBN METAR' }))
+        ];
+        for (const ev of allEvents) {
+          const pk = interpK(ev.dirDeg);
+          const alpha = getRoughnessAlpha(ev.dirDeg);
+          const refGust = probe.isRooftop ? ev.gustMs : ablSpeed(1.5, ev.gustMs, alpha);
+          const estPropGust = refGust * pk.kProp;
+          const estBaseGust = refGust * pk.kBase;
+          const estDeltaGust = estPropGust - estBaseGust;
+          edgeCases.push({
+            scope: 'point',
+            time: ev.time,
+            dirDeg: ev.dirDeg,
+            dir: ev.dir,
+            meanMs: ev.meanMs,
+            gustMs: ev.gustMs,
+            src: ev.src,
+            kProp: Math.round(pk.kProp * 100) / 100,
+            estSitePeakGust: Math.round(estPropGust * 10) / 10,
+            estBaseGust: Math.round(estBaseGust * 10) / 10,
+            estDeltaGust: Math.round(estDeltaGust * 10) / 10,
+            hotspotX: probe.x,
+            hotspotY: evalY,
+            hotspotZ: probe.z
+          });
+        }
+        edgeCases.sort((a, b) => b.estDeltaGust - a.estDeltaGust || b.estSitePeakGust - a.estSitePeakGust);
+      }
+
+      return {
+        annual: {
+          id: probe.id || 'custom',
+          label: probe.label || 'Selected Point',
+          x: probe.x,
+          y: evalY,
+          z: probe.z,
+          hAGL: Math.round(hAGL * 10) / 10,
+          isRooftop: !!probe.isRooftop,
+          worstDir,
+          maxDeltaK: Math.round(maxDeltaK * 100) / 100,
+          maxKProp: Math.round(maxKProp * 100) / 100,
+          pctOver4Base: Math.round(pctSitBase * 10) / 10,
+          pctOver4Prop: Math.round(pctSitProp * 10) / 10,
+          pctOver8Base: Math.round(pctWalkBase * 100) / 100,
+          pctOver8Prop: Math.round(pctWalkProp * 100) / 100,
+          hrsDistressBase: Math.round((pctDistBase / 100) * 8760 * 10) / 10,
+          hrsDistressProp: Math.round((pctDistProp / 100) * 8760 * 10) / 10
+        },
+        edgeCases
+      };
+    }
+
+    /**
      * Run an 8-direction 3D CFD wind rose sweep and convolve with 10-year historical
      * Brisbane weather data (WIND_CLIMATE) to discover true site aerodynamic edge cases
-     * & Lawson annual exceedance hours at key Condition 30 locations.
+     * & Lawson annual exceedance hours at both the currently selected probe and key Condition 30 locations.
      */
-    async runWindRoseAnalysis(onProgress) {
+    async runWindRoseAnalysis(onProgress, activeProbe = null) {
       const scanDirs = [0, 45, 90, 135, 180, 225, 270, 315];
       const dirResults = [];
 
@@ -1351,71 +1509,35 @@
         // Yield a frame so progress UI stays responsive
         await new Promise((r) => setTimeout(r, 12));
 
-        const { base, prop } = this.solvePair(d);
-        const uPedNorm = prop.uPedRefNorm;
-        const probeK = {};
-        let maxProbeK = 0;
-        let maxProbeDeltaK = 0;
-        let worstProbeLabel = '';
-
-        for (const kp of this.keyProbes) {
-          const sp = this.sampleVelocity(prop, kp.x, kp.y, kp.z, U10_NORM);
-          const sb = this.sampleVelocity(base, kp.x, kp.y, kp.z, U10_NORM);
-          const refN = kp.isRooftop ? U10_NORM : uPedNorm;
-          const kProp = sp.speed / refN;
-          const kBase = sb.speed / refN;
-          probeK[kp.id] = {
-            kProp,
-            kBase,
-            deltaK: kProp - kBase,
-            downwashNorm: sp.downwash
-          };
-          if (!kp.isRooftop && kProp > maxProbeK) maxProbeK = kProp;
-          if (!kp.isRooftop && kProp - kBase > maxProbeDeltaK) {
-            maxProbeDeltaK = kProp - kBase;
-            worstProbeLabel = kp.label;
-          }
-        }
-
-        // Also scan full street-level grid for peak site speedup & delta K
         const ped = this.computePedestrianMetrics(d, U10_NORM);
+        const uPedNorm = ped.prop.uPedRefNorm;
         dirResults.push({
           dirDeg: d,
           dir: dirToCompass(d),
           maxSiteK: ped.stats.maxK,
           maxSiteDeltaK: ped.stats.maxDelta / uPedNorm,
           maxDownwashNorm: ped.stats.maxDownwash,
-          hotspot: ped.stats.hotspot,
-          probeK,
-          worstProbeLabel
+          hotspot: ped.stats.hotspot
         });
       }
 
-      // Helper to linearly interpolate directional K for any arbitrary azimuth
-      const interpDir = (deg) => {
+      // Helper to linearly interpolate site-wide directional K & pick nearest hotspot coordinates
+      const interpSiteDir = (deg) => {
         const norm = ((deg % 360) + 360) % 360;
         const idxF = norm / 45;
         const i0 = Math.floor(idxF) % 8;
         const i1 = (i0 + 1) % 8;
         const t = idxF - Math.floor(idxF);
         const a = dirResults[i0], b = dirResults[i1];
-        const kMap = {};
-        for (const kp of this.keyProbes) {
-          const ka = a.probeK[kp.id], kb = b.probeK[kp.id];
-          kMap[kp.id] = {
-            kProp: ka.kProp * (1 - t) + kb.kProp * t,
-            kBase: ka.kBase * (1 - t) + kb.kBase * t,
-            deltaK: ka.deltaK * (1 - t) + kb.deltaK * t
-          };
-        }
+        const near = t < 0.5 ? a : b;
         return {
           maxSiteK: a.maxSiteK * (1 - t) + b.maxSiteK * t,
           maxSiteDeltaK: a.maxSiteDeltaK * (1 - t) + b.maxSiteDeltaK * t,
-          probeK: kMap
+          hotspot: near.hotspot
         };
       };
 
-      // 1. Score all historical extreme events from WIND_CLIMATE by actual 3D site amplification
+      // 1. Score all historical extreme events across the whole 320m site (recording each storm's exact hotspot!)
       const climate = this.climate;
       const edgeCases = [];
       if (climate) {
@@ -1424,12 +1546,16 @@
           ...(climate.topYbbnStorms || []).slice(0, 4).map((e) => ({ ...e, src: 'YBBN METAR' }))
         ];
         for (const ev of allEvents) {
-          const f = interpDir(ev.dirDeg);
+          const f = interpSiteDir(ev.dirDeg);
           const alpha = getRoughnessAlpha(ev.dirDeg);
           const uPedGust = ablSpeed(1.5, ev.gustMs, alpha);
           const estSitePeakGust = uPedGust * f.maxSiteK;
           const estDeltaGust = uPedGust * Math.max(0, f.maxSiteDeltaK);
+          const hx = f.hotspot ? f.hotspot.x : this.cx;
+          const hz = f.hotspot ? f.hotspot.z : this.cz;
+          const hy = this.shadingEngine.sampleDem(hx, hz) + 1.5;
           edgeCases.push({
+            scope: 'site',
             time: ev.time,
             dirDeg: ev.dirDeg,
             dir: ev.dir,
@@ -1438,72 +1564,27 @@
             src: ev.src,
             maxSiteK: Math.round(f.maxSiteK * 100) / 100,
             estSitePeakGust: Math.round(estSitePeakGust * 10) / 10,
-            estDeltaGust: Math.round(estDeltaGust * 10) / 10
+            estDeltaGust: Math.round(estDeltaGust * 10) / 10,
+            hotspotX: hx,
+            hotspotY: hy,
+            hotspotZ: hz
           });
         }
         edgeCases.sort((a, b) => b.estDeltaGust - a.estDeltaGust || b.estSitePeakGust - a.estSitePeakGust);
       }
 
-      // 2. Compute 10-year annual Lawson exceedance hours at each key Condition 30 probe
-      const probeAnnual = [];
-      if (climate && climate.roseAnnual) {
-        const edges = climate.meta.speedBinEdges;
-        const binMids = [];
-        for (let b = 0; b < edges.length - 1; b++) {
-          binMids.push(b === edges.length - 2 ? edges[b] + 2.0 : (edges[b] + edges[b + 1]) * 0.5);
-        }
+      // 2. Compute 10-year annual Lawson exceedance hours at all 5 Condition 30 checkpoints + active selected probe
+      const probeAnnual = this.keyProbes
+        .map((kp) => {
+          const r = this.evaluatePointClimate(kp);
+          return r ? r.annual : null;
+        })
+        .filter(Boolean);
 
-        for (const kp of this.keyProbes) {
-          let pctSitBase = 0, pctSitProp = 0;   // > 4 m/s (exceeds Sitting)
-          let pctWalkBase = 0, pctWalkProp = 0; // > 8 m/s (exceeds Walking)
-          let pctDistBase = 0, pctDistProp = 0; // > 15 m/s gust (Distress)
-          let worstDir = '';
-          let maxDeltaK = -99;
-
-          for (const sec of climate.roseAnnual) {
-            const f = interpDir(sec.deg);
-            const pk = f.probeK[kp.id];
-            if (pk.deltaK > maxDeltaK) {
-              maxDeltaK = pk.deltaK;
-              worstDir = `${sec.dir} (${Math.round(sec.deg)}°)`;
-            }
-            const alpha = getRoughnessAlpha(sec.deg);
-            const pedRatio = kp.isRooftop ? 1.0 : Math.pow(1.5 / 10.0, alpha);
-
-            for (let b = 0; b < binMids.length; b++) {
-              const fracMean = sec.binFrac[b] || 0;
-              const fracGust = sec.gustBinFrac[b] || 0;
-              const u10 = binMids[b];
-              const localBase = u10 * pedRatio * pk.kBase;
-              const localProp = u10 * pedRatio * pk.kProp;
-              if (localBase >= 4.0) pctSitBase += fracMean * 100;
-              if (localProp >= 4.0) pctSitProp += fracMean * 100;
-              if (localBase >= 8.0) pctWalkBase += fracMean * 100;
-              if (localProp >= 8.0) pctWalkProp += fracMean * 100;
-              if (localBase >= 15.0) pctDistBase += fracGust * 100;
-              if (localProp >= 15.0) pctDistProp += fracGust * 100;
-            }
-          }
-
-          probeAnnual.push({
-            id: kp.id,
-            label: kp.label,
-            x: kp.x, y: kp.y, z: kp.z,
-            isRooftop: kp.isRooftop,
-            worstDir,
-            maxDeltaK: Math.round(maxDeltaK * 100) / 100,
-            pctOver4Base: Math.round(pctSitBase * 10) / 10,
-            pctOver4Prop: Math.round(pctSitProp * 10) / 10,
-            pctOver8Base: Math.round(pctWalkBase * 100) / 100,
-            pctOver8Prop: Math.round(pctWalkProp * 100) / 100,
-            hrsDistressBase: Math.round((pctDistBase / 100) * 8760 * 10) / 10,
-            hrsDistressProp: Math.round((pctDistProp / 100) * 8760 * 10) / 10
-          });
-        }
-      }
+      const selectedPoint = activeProbe ? this.evaluatePointClimate(activeProbe) : null;
 
       if (onProgress) onProgress(scanDirs.length, scanDirs.length, 'Complete');
-      return { dirResults, edgeCases, probeAnnual };
+      return { dirResults, edgeCases, probeAnnual, selectedPoint };
     }
   }
 

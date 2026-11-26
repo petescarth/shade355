@@ -95,6 +95,8 @@
       sliceOffset: 0,
       probe: { ...windEngine.keyProbes[0] },
       lastMetrics: null,
+      lastScanResult: null,
+      edgeScope: 'point', // 'point' | 'site'
       scanning: false
     };
 
@@ -624,6 +626,132 @@
         res.prop.downwash > 0.2 ? `${res.prop.downwash.toFixed(1)} m/s ↓` : `${Math.abs(res.prop.downwash).toFixed(1)} m/s ↑`;
 
       renderVerticalProfileSVG(res);
+      refreshPointEdgeCases();
+    }
+
+    function renderEdgeCasesAndCond30() {
+      const scan = wState.lastScanResult;
+      if (!scan) return;
+
+      const edgeCard = document.getElementById('wind-edge-card');
+      const edgeList = document.getElementById('wind-edge-list');
+      const scopeNote = document.getElementById('wind-edge-scope-note');
+      edgeCard.style.display = 'flex';
+      edgeList.innerHTML = '';
+
+      const ptClimate = windEngine.evaluatePointClimate(wState.probe);
+      const usePoint = wState.edgeScope === 'point' && ptClimate && ptClimate.edgeCases.length > 0;
+      const list = usePoint ? ptClimate.edgeCases : scan.edgeCases;
+
+      scopeNote.textContent = usePoint
+        ? `Ranked at: ${wState.probe.label} (RL ${wState.probe.y.toFixed(1)}m) — click any storm to simulate here.`
+        : 'Ranked across worst open street cell in 320m domain — click jumps probe & camera to that storm hotspot.';
+
+      for (const ec of list.slice(0, 7)) {
+        const item = document.createElement('div');
+        const sign = ec.estDeltaGust > 0.05 ? '+' : '';
+        const deltaColor = ec.estDeltaGust > 0.5 ? '#fb7185' : ec.estDeltaGust < -0.5 ? '#38bdf8' : '#cbd5e1';
+        const kVal = usePoint ? ec.kProp : ec.maxSiteK;
+        item.className = 'wind-edge-item';
+        item.innerHTML = `
+          <div class="wind-edge-top">
+            <span>${ec.time.slice(0, 10)} · ${ec.dirDeg}° ${ec.dir}</span>
+            <span style="color:${deltaColor}; font-family:var(--mono)">Δ ${sign}${ec.estDeltaGust} m/s</span>
+          </div>
+          <div class="wind-edge-sub">
+            <span>${ec.src} (${ec.gustMs} m/s gust)</span>
+            <span>${usePoint ? 'Here' : 'Peak'}: ${ec.estSitePeakGust} m/s (${kVal}×)</span>
+          </div>
+        `;
+        item.addEventListener('click', () => {
+          wState.dirDeg = ec.dirDeg;
+          wState.refSpeedMs = Math.min(44, ec.gustMs);
+          wState.presetId = null;
+          wState.presetLabel = `${ec.time.slice(0, 10)} Storm`;
+          document.querySelectorAll('.wind-preset-btn').forEach((b) => b.classList.remove('active'));
+
+          if (!usePoint && Number.isFinite(ec.hotspotX) && Number.isFinite(ec.hotspotZ)) {
+            const hy = Number.isFinite(ec.hotspotY) ? ec.hotspotY : shadingEngine.sampleDem(ec.hotspotX, ec.hotspotZ) + 1.5;
+            wState.probe = {
+              id: 'hotspot',
+              label: `Storm Hotspot (${ec.time.slice(0, 10)} ${ec.dir})`,
+              x: ec.hotspotX,
+              y: hy,
+              z: ec.hotspotZ,
+              isRooftop: false
+            };
+            document.querySelectorAll('[data-probeid]').forEach((b) => b.classList.remove('active-cyan'));
+            flyTo([ec.hotspotX + 110, Math.max(80, hy + 65), ec.hotspotZ + 100], [ec.hotspotX, Math.max(12, hy), ec.hotspotZ], 650);
+          }
+
+          document.getElementById('wind-preset-note').innerHTML =
+            `<strong>Edge Case: ${ec.time.replace('T', ' ')} AEST</strong> (${ec.src})<br/>Regional gust ${ec.gustMs} m/s from ${ec.dirDeg}° ${ec.dir} → ${usePoint ? 'probe' : 'site hotspot'} ${ec.estSitePeakGust} m/s (Δ ${sign}${ec.estDeltaGust} m/s from 355 Coro).`;
+          resetAllParticles();
+          scheduleSolve(true);
+          document.querySelector('[data-wtab="probe"]').click();
+        });
+        edgeList.appendChild(item);
+      }
+
+      // Render Condition 30 Annual Lawson Table (pin selected custom probe row at top!)
+      const c30Card = document.getElementById('wind-cond30-card');
+      const c30Body = document.getElementById('wind-cond30-body');
+      c30Card.style.display = 'flex';
+      c30Body.innerHTML = '';
+
+      const rows = [];
+      const isPresetProbe = scan.probeAnnual.some((pa) => pa.id === wState.probe.id);
+      if (ptClimate && ptClimate.annual && !isPresetProbe) {
+        rows.push({ ...ptClimate.annual, isSelected: true });
+      }
+      for (const pa of scan.probeAnnual) {
+        rows.push({ ...pa, isSelected: pa.id === wState.probe.id });
+      }
+
+      for (const pa of rows) {
+        const tr = document.createElement('tr');
+        const d4 = pa.pctOver4Prop - pa.pctOver4Base;
+        const d8 = pa.pctOver8Prop - pa.pctOver8Base;
+        tr.style.cursor = 'pointer';
+        if (pa.isSelected) {
+          tr.style.background = 'rgba(56, 189, 248, 0.14)';
+        }
+        const prefix = pa.isSelected ? '★ ' : '';
+        tr.title = `${pa.label} · Distress (>15m/s gust): ${pa.hrsDistressBase} → ${pa.hrsDistressProp} hrs/yr · Worst dir: ${pa.worstDir} (ΔK=${pa.maxDeltaK})`;
+        tr.innerHTML = `
+          <td style="font-size:10px; font-weight:${pa.isSelected ? 700 : 400}">${prefix}${pa.label.replace(' (RL 78.4m)', '')}</td>
+          <td style="font-family:var(--mono); font-size:10px; color:${d4 > 0.3 ? '#fb7185' : 'inherit'}">${pa.pctOver4Base}→${pa.pctOver4Prop}%</td>
+          <td style="font-family:var(--mono); font-size:10px; color:${d8 > 0.05 ? '#fb7185' : 'inherit'}">${pa.pctOver8Base}→${pa.pctOver8Prop}%</td>
+          <td style="font-family:var(--mono); font-size:9.5px">${pa.worstDir.split(' ')[0]}</td>
+        `;
+        tr.addEventListener('click', () => {
+          wState.probe = { id: pa.id, label: pa.label, x: pa.x, y: pa.y, z: pa.z, isRooftop: pa.isRooftop };
+          updateProbeUI();
+          flyTo([pa.x + 115, Math.max(85, pa.y + 65), pa.z + 105], [pa.x, Math.max(12, pa.y), pa.z], 650);
+          document.querySelector('[data-wtab="probe"]').click();
+        });
+        c30Body.appendChild(tr);
+      }
+    }
+
+    function refreshPointEdgeCases() {
+      const strip = document.getElementById('wprobe-annual-strip');
+      if (!windEngine.hasEightDirCache()) {
+        if (strip) strip.style.display = 'none';
+        return;
+      }
+      const pt = windEngine.evaluatePointClimate(wState.probe);
+      if (pt && pt.annual && strip) {
+        const a = pt.annual;
+        const topEv = pt.edgeCases[0];
+        strip.style.display = 'block';
+        strip.innerHTML =
+          `<strong>10-Yr Climate Here:</strong> &gt;4m/s ${a.pctOver4Base}→${a.pctOver4Prop}% · &gt;8m/s ${a.pctOver8Base}→${a.pctOver8Prop}% · Distress ${a.hrsDistressBase}→${a.hrsDistressProp} h/yr` +
+          (topEv ? `<br/>Worst storm here: ${topEv.time.slice(0, 10)} ${topEv.dir} (${topEv.estSitePeakGust} m/s, Δ ${topEv.estDeltaGust >= 0 ? '+' : ''}${topEv.estDeltaGust} m/s)` : '');
+      }
+      if (wState.lastScanResult) {
+        renderEdgeCasesAndCond30();
+      }
     }
 
     function updateWindHUD() {
@@ -958,6 +1086,15 @@
       }
     });
 
+    // Edge-case scope toggle (Selected Point vs Whole 320m Site)
+    document.querySelectorAll('[data-edgescope]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        wState.edgeScope = btn.dataset.edgescope;
+        document.querySelectorAll('[data-edgescope]').forEach((b) => b.classList.toggle('active-cyan', b === btn));
+        renderEdgeCasesAndCond30();
+      });
+    });
+
     // 8-Direction CFD × 10-Year Brisbane Climate Edge-Case Scanner
     document.getElementById('btn-run-wind-scan').addEventListener('click', async () => {
       if (wState.scanning) return;
@@ -975,69 +1112,13 @@
         const res = await windEngine.runWindRoseAnalysis((done, total, msg) => {
           progFill.style.width = `${Math.round((done / total) * 100)}%`;
           msgEl.textContent = `${msg} (${done}/${total})`;
-        });
+        }, wState.probe);
 
-        // Render discovered edge cases
-        const edgeCard = document.getElementById('wind-edge-card');
-        const edgeList = document.getElementById('wind-edge-list');
-        edgeCard.style.display = 'flex';
-        edgeList.innerHTML = '';
+        wState.lastScanResult = res;
+        renderEdgeCasesAndCond30();
+        refreshPointEdgeCases();
 
-        for (const ec of res.edgeCases.slice(0, 7)) {
-          const item = document.createElement('div');
-          item.className = 'wind-edge-item';
-          item.innerHTML = `
-            <div class="wind-edge-top">
-              <span>${ec.time.slice(0, 10)} · ${ec.dirDeg}° ${ec.dir}</span>
-              <span style="color:#fb7185; font-family:var(--mono)">Δ +${ec.estDeltaGust} m/s</span>
-            </div>
-            <div class="wind-edge-sub">
-              <span>${ec.src} (${ec.gustMs} m/s gust)</span>
-              <span>Site Peak: ${ec.estSitePeakGust} m/s (${ec.maxSiteK}×)</span>
-            </div>
-          `;
-          item.addEventListener('click', () => {
-            wState.dirDeg = ec.dirDeg;
-            wState.refSpeedMs = Math.min(44, ec.gustMs);
-            wState.presetId = null;
-            wState.presetLabel = `${ec.time.slice(0, 10)} Storm`;
-            document.querySelectorAll('.wind-preset-btn').forEach((b) => b.classList.remove('active'));
-            document.getElementById('wind-preset-note').innerHTML =
-              `<strong>Edge Case: ${ec.time.replace('T', ' ')} AEST</strong> (${ec.src})<br/>Regional gust ${ec.gustMs} m/s from ${ec.dirDeg}° ${ec.dir} → est. site peak ${ec.estSitePeakGust} m/s (Δ +${ec.estDeltaGust} m/s from 355 Coro).`;
-            resetAllParticles();
-            scheduleSolve(true);
-            // Switch back to probe tab to inspect
-            document.querySelector('[data-wtab="probe"]').click();
-          });
-          edgeList.appendChild(item);
-        }
-
-        // Render Condition 30 Annual Lawson Table
-        const c30Card = document.getElementById('wind-cond30-card');
-        const c30Body = document.getElementById('wind-cond30-body');
-        c30Card.style.display = 'flex';
-        c30Body.innerHTML = '';
-
-        for (const pa of res.probeAnnual) {
-          const tr = document.createElement('tr');
-          const d4 = pa.pctOver4Prop - pa.pctOver4Base;
-          const d8 = pa.pctOver8Prop - pa.pctOver8Base;
-          tr.style.cursor = 'pointer';
-          tr.innerHTML = `
-            <td style="font-size:10px">${pa.label.replace(' (RL 78.4m)', '')}</td>
-            <td style="font-family:var(--mono); font-size:10px; color:${d4 > 0.3 ? '#fb7185' : 'inherit'}">${pa.pctOver4Base}→${pa.pctOver4Prop}%</td>
-            <td style="font-family:var(--mono); font-size:10px; color:${d8 > 0.05 ? '#fb7185' : 'inherit'}">${pa.pctOver8Base}→${pa.pctOver8Prop}%</td>
-            <td style="font-family:var(--mono); font-size:9.5px">${pa.worstDir.split(' ')[0]}</td>
-          `;
-          tr.addEventListener('click', () => {
-            wState.probe = { id: pa.id, label: pa.label, x: pa.x, y: pa.y, z: pa.z, isRooftop: pa.isRooftop };
-            updateProbeUI();
-            document.querySelector('[data-wtab="probe"]').click();
-          });
-          c30Body.appendChild(tr);
-        }
-
-        msgEl.textContent = `Done — ${res.edgeCases.length} historical storms scored across 8 CFD directions.`;
+        msgEl.textContent = `Done — ${res.edgeCases.length} storms scored across 8 CFD directions. Click any street point to update live!`;
       } finally {
         btn.disabled = false;
         wState.scanning = false;
@@ -1053,6 +1134,13 @@
       isActive: () => wState.active,
       setMode: setAppMode,
       onProposedChanged: () => {
+        wState.lastScanResult = null;
+        const msgEl = document.getElementById('wind-scan-msg');
+        if (msgEl && document.getElementById('wind-edge-card').style.display !== 'none') {
+          msgEl.textContent = 'Tower geometry changed — re-run 8-dir scan to update annual stats.';
+        }
+        const strip = document.getElementById('wprobe-annual-strip');
+        if (strip) strip.style.display = 'none';
         if (wState.active) scheduleSolve(false);
       },
       onSceneClick: (point3D, hitProposed) => {
