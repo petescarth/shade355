@@ -145,7 +145,9 @@
     const heatTex = new THREE.CanvasTexture(heatCanvas);
     heatTex.minFilter = THREE.LinearFilter;
     heatTex.magFilter = THREE.LinearFilter;
-    heatTex.flipY = false;
+    // PlaneGeometry rotated -PI/2 around X maps minZ (North, canvas row 0) to uv.v = 1,
+    // so flipY MUST be true (Three.js default) to align North/South with the 3D scene!
+    heatTex.flipY = true;
 
     const heatGeo = new THREE.PlaneGeometry(windEngine.domainW, windEngine.domainD, windEngine.nx - 1, windEngine.nz - 1);
     heatGeo.rotateX(-Math.PI / 2);
